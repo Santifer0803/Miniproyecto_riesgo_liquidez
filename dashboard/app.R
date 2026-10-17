@@ -7,7 +7,12 @@
 #    https://shiny.posit.co/
 #
 
-library(shiny)
+# Librerias necesarias
+pacman::p_load(readxl,
+               shiny)
+
+# Datos necesarios
+data_contable <- read_excel("data/miniLiquidez_DATOS.xlsx", sheet = "Datos_Contables")
 
 # Define UI for application that draws a histogram
 # ui <- fluidPage(
