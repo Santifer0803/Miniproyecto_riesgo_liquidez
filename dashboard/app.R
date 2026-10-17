@@ -12,7 +12,11 @@ pacman::p_load(readxl,
                shiny)
 
 # Datos necesarios
-data_contable <- read_excel("data/miniLiquidez_DATOS.xlsx", sheet = "Datos_Contables")
+datos_contables <- read_excel("data/miniLiquidez_DATOS.xlsx", sheet = "Datos_Contables")
+datos_contrato <- read_excel("data/miniLiquidez_DATOS.xlsx", sheet = "Pagos_Contractuales")
+datos_observados <- read_excel("data/miniLiquidez_DATOS.xlsx", sheet = "Observaciones")
+datos_tc <- read_excel("data/miniLiquidez_DATOS.xlsx", sheet = "Tipo_Cambio")
+datos_catalogo <- read_excel("data/miniLiquidez_DATOS.xlsx", sheet = "Catalogo_Usado")
 
 # Define UI for application that draws a histogram
 # ui <- fluidPage(
