@@ -8,7 +8,8 @@
 #
 
 # Librerias necesarias
-pacman::p_load(readxl,
+pacman::p_load(janitor,
+               readxl,
                shiny)
 
 # Datos necesarios
@@ -17,6 +18,13 @@ datos_contrato <- read_excel("data/miniLiquidez_DATOS.xlsx", sheet = "Pagos_Cont
 datos_observados <- read_excel("data/miniLiquidez_DATOS.xlsx", sheet = "Observaciones")
 datos_tc <- read_excel("data/miniLiquidez_DATOS.xlsx", sheet = "Tipo_Cambio")
 datos_catalogo <- read_excel("data/miniLiquidez_DATOS.xlsx", sheet = "Catalogo_Usado")
+
+# Se limpia el nombre de las variables
+datos_contables <- clean_names(datos_contables)
+datos_contrato <- clean_names(datos_contrato)
+datos_observados <- clean_names(datos_observados)
+datos_tc <- clean_names(datos_tc)
+datos_catalogo <- clean_names(datos_catalogo)
 
 # Define UI for application that draws a histogram
 # ui <- fluidPage(
