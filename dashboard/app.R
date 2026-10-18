@@ -10,7 +10,8 @@
 # Librerias necesarias
 pacman::p_load(janitor,
                readxl,
-               shiny)
+               shiny,
+               tidyverse)
 
 # Datos necesarios
 datos_contables <- read_excel("data/miniLiquidez_DATOS.xlsx", sheet = "Datos_Contables")
@@ -25,6 +26,32 @@ datos_contrato <- clean_names(datos_contrato)
 datos_observados <- clean_names(datos_observados)
 datos_tc <- clean_names(datos_tc)
 datos_catalogo <- clean_names(datos_catalogo)
+
+# Variables tipo factor de datos del catálogo
+datos_catalogo$cuenta_contable <- as.factor(datos_catalogo$cuenta_contable)
+
+# Variables tipo factor de datos contables
+datos_contables$c_entidad <- as.factor(datos_contables$c_entidad)
+datos_contables$alias <- as.factor(datos_contables$alias)
+datos_contables$moneda <- as.factor(datos_contables$moneda)
+datos_contables$cuenta_contable <- as.factor(datos_contables$cuenta_contable)
+datos_contables$nombre_cuenta_catalogo <- as.factor(datos_contables$nombre_cuenta_catalogo)
+datos_contables$sector_contraparte <- as.factor(datos_contables$sector_contraparte)
+datos_contables$relacion_comercial_estable <- as.factor(datos_contables$relacion_comercial_estable)
+datos_contables$retiro_anticipado_sin_penalidad <- as.factor(datos_contables$retiro_anticipado_sin_penalidad)
+datos_contables$calificacion_internacional <- as.factor(datos_contables$calificacion_internacional)
+datos_contables$mercado_activo <- as.factor(datos_contables$mercado_activo)
+datos_contables$negociacion_disponible <- as.factor(datos_contables$negociacion_disponible)
+datos_contables$ingreso_cliente_misma_moneda <- as.factor(datos_contables$ingreso_cliente_misma_moneda)
+datos_contables$destino_credito <- as.factor(datos_contables$destino_credito)
+
+# Variables tipo factor de datos observados
+datos_observados$c_entidad <- as.factor(datos_observados$c_entidad)
+datos_observados$alias <- as.factor(datos_observados$alias)
+datos_observados$moneda <- as.factor(datos_observados$moneda)
+
+# Variables tipo factor de datos del tipo de cambio
+datos_tc$moneda <- as.factor(datos_tc$moneda)
 
 # Define UI for application that draws a histogram
 # ui <- fluidPage(
