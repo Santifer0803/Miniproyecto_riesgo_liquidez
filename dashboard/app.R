@@ -9,6 +9,7 @@
 
 # Librerias necesarias
 pacman::p_load(janitor,
+               plotly,
                readxl,
                shiny,
                tidyverse)
