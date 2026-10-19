@@ -58,6 +58,15 @@ datos_tc$moneda <- as.factor(datos_tc$moneda)
 levels(datos_contables$alias) <- c("A", "B", "C", "D", "E")
 levels(datos_observados$alias) <- c("A", "B", "C", "D", "E")
 
+# Se juntan los datos contables con los pagos de contrato
+datos_contables <- datos_contables |>
+  left_join(datos_contrato |>
+              select(-c("id_pago", "periodo")), "id_registro")
+
+# Se añade el tipo de cambio correspondiente a cada periodo
+datos_contables <- datos_contables |> 
+  left_join(datos_tc, c("periodo", "moneda"))
+
 # Define UI for application that draws a histogram
 # ui <- fluidPage(
 # 
