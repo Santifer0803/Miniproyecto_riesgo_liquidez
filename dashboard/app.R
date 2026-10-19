@@ -54,6 +54,10 @@ datos_observados$moneda <- as.factor(datos_observados$moneda)
 # Variables tipo factor de datos del tipo de cambio
 datos_tc$moneda <- as.factor(datos_tc$moneda)
 
+# Se renombran los nombres de las entidades
+levels(datos_contables$alias) <- c("A", "B", "C", "D", "E")
+levels(datos_observados$alias) <- c("A", "B", "C", "D", "E")
+
 # Define UI for application that draws a histogram
 # ui <- fluidPage(
 # 
