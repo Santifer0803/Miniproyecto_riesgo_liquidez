@@ -226,13 +226,36 @@ server <- function(input, output, session) {
 
   output$grafico_brecha <- renderPlotly({
     d <- bandas_vista()
-    plotly::plot_ly(data = d, x = ~banda, y = ~acumulada / 1e6,
-                    type = "scatter", mode = "lines+markers",
-                    line = list(color = "#155b75"), name = "Brecha acumulada") |>
-      plotly::layout(xaxis = list(title = "Banda (días)"),
-                     yaxis = list(title = "Millones de la moneda seleccionada"),
-                     shapes = list(list(type = "line", x0 = -0.5, x1 = 5.5,
-                                        y0 = 0, y1 = 0, line = list(dash = "dot"))))
+    
+    plotly::plot_ly(
+      data = d,
+      x = ~banda,
+      y = ~acumulada / 1e6,
+      type = "scatter",
+      mode = "lines+markers",
+      line = list(color = "#155b75"),
+      name = "Brecha acumulada"
+    ) |>
+      plotly::layout(
+        xaxis = list(
+          title = "Banda (días)",
+          categoryorder = "array",
+          categoryarray = bandas_liquidez
+        ),
+        yaxis = list(
+          title = "Millones de la moneda seleccionada"
+        ),
+        shapes = list(
+          list(
+            type = "line",
+            x0 = -0.5,
+            x1 = 5.5,
+            y0 = 0,
+            y1 = 0,
+            line = list(dash = "dot")
+          )
+        )
+      )
   })
   output$tabla_bandas <- DT::renderDT({
     d <- bandas_actuales() |>
