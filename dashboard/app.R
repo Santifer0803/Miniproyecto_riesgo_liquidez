@@ -114,9 +114,9 @@ ui <- fluidPage(
         tabPanel("Resumen 2.1",
           br(),
           fluidRow(
-            column(4, div(class = "metric", b("Activos contables"), span(textOutput("kpi_activos", inline = TRUE)))),
-            column(4, div(class = "metric", b("Pasivos contables"), span(textOutput("kpi_pasivos", inline = TRUE)))),
-            column(4, div(class = "metric", b("Brecha acumulada a 30 días"), span(textOutput("kpi_30", inline = TRUE))))
+            column(4, div(class = "metric", tags$b("Activos contables"), span(textOutput("kpi_activos", inline = TRUE)))),
+            column(4, div(class = "metric", tags$b("Pasivos contables"), span(textOutput("kpi_pasivos", inline = TRUE)))),
+            column(4, div(class = "metric", tags$b("Brecha acumulada a 30 días"), span(textOutput("kpi_30", inline = TRUE))))
           ),
           br(), strong(textOutput("alerta")),
           p("La brecha es anterior al uso de caja, encaje, venta de inversiones y otras medidas de cobertura."),
