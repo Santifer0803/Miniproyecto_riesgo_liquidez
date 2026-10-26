@@ -102,4 +102,4 @@ permiten exportar la selección para conciliaciones con otros módulos.
 
 ### Fuente de la clasificación Reglamento de Información Financiera,
 CONASSIF 6-18, artículo 26 y anexos oficiales, accesibles desde
-https://www.sugef.fi.cr/normativa/NormativaTransversal.aspx
+[https://www.sugef.fi.cr/normativa/NormativaTransversal.aspx](https://www.sugef.fi.cr/normativa/normativa_transversal/documentos/CONASSIF%206-18%20%28v25%208%20enero%202026%29.pdf)
