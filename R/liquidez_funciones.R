@@ -1170,3 +1170,62 @@ ifne <- function(datos,
   return(ifne)
 }
 
+################## Punto 7 ##################
+
+# Función que calcula el VaR y LVaR para cada entidad
+var_liquidez <- function(datos) {
+  # Se calcula el VaR para cada entidad
+  tabla_var <- datos_contables |>
+    filter(grepl("Instrumentos financieros", nombre_cuenta_catalogo)) |>
+    mutate(valor_mercado = valor_mercado * crc_por_unidad) |>
+    group_by(periodo, alias) |>
+    summarise(valor_total = sum(valor_mercado), .groups = "drop_last") |> group_by(alias) |> summarise(var_95 = quantile(valor_total, 0.95),
+                                                                                                       var_99 = quantile(valor_total, 0.99))
+  
+  # Se calcula el costo de liquidar inversiones
+  coste_liquidacion <- datos |>
+    distinct(id_registro, .keep_all = TRUE) |> 
+    mutate(
+      valor_mercado = valor_mercado * crc_por_unidad,
+      valor_cotizado_venta_urgente = valor_cotizado_venta_urgente * crc_por_unidad,
+      coste_liq = valor_mercado - valor_cotizado_venta_urgente
+    )
+  
+  # Se unen ambos resultados
+  tabla_var <- tabla_var |>
+    left_join(coste_liquidacion |>
+                group_by(alias) |>
+                summarise(coste_liq = sum(coste_liq)),
+              by = "alias")
+  
+  # Se calcula el VaR ajustado por liquidez
+  tabla_var <- tabla_var |>
+    mutate(var_liq_95 = var_95 + coste_liq,
+           var_liq_99 = var_99 + coste_liq)
+  
+  # Se dejan las 10 posiciones con más coste de liquidacion
+  coste_liquidacion <- coste_liquidacion |>
+    group_by(alias) |>
+    slice_max(order_by = coste_liq,
+              n = 10,
+              with_ties = FALSE) |>
+    ungroup() |> 
+    select(c(
+      id_registro,
+      periodo,
+      alias,
+      nombre_cuenta_catalogo,
+      disponibilidad,
+      moneda,
+      dias_vencimiento,
+      banda,
+      coste_liq
+    ))
+  
+  # Lista con las 2 tablas que se ocupan
+  res <- list(tabla_var, coste_liquidacion)
+  
+  # Se devuelve la lista, con la tabla del VaR en la primera posición y las 10
+  # posiciones con más coste de liquidez de cada entidad
+  return(res)
+}
