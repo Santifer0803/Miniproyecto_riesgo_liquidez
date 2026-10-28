@@ -21,11 +21,7 @@ clasificar_banda <- function(dias) {
 }
 
 tasa_acotada <- function(numerador, denominador) {
-  dplyr::if_else(
-    !is.na(denominador) & denominador > 0,
-    pmin(1, pmax(0, numerador / denominador)),
-    NA_real_
-  )
+  dplyr::if_else(!is.na(denominador) & denominador > 0, pmin(1, pmax(0, numerador / denominador)), NA_real_)
 }
 
 clasificar_catalogo <- function(datos_catalogo) {
@@ -72,10 +68,7 @@ clasificar_catalogo <- function(datos_catalogo) {
           "Salida exigible; ajuste histórico de retiros",
         rubro_liquidez == "Depósitos a plazo" ~
           "Salida contractual; ajuste histórico de renovaciones",
-        rubro_liquidez %in% c(
-          "Financiamiento recibido",
-          "Otras cuentas por pagar"
-        ) ~ "Salida contractual",
+        rubro_liquidez %in% c("Financiamiento recibido", "Otras cuentas por pagar") ~ "Salida contractual",
         rubro_liquidez == "Capital y patrimonio" ~
           "No representa una salida contractual en el ejercicio",
         rubro_liquidez == "Líneas concedidas no utilizadas" ~
@@ -135,20 +128,16 @@ preparar_saldos <- function(datos_contables, catalogo_clasificado) {
   
   saldos |>
     dplyr::mutate(
-      dias_vencimiento = as.integer(
-        as.Date(fecha_vencimiento) - periodo
-      ),
+      dias_vencimiento = as.integer(as.Date(fecha_vencimiento) - periodo),
       banda_vencimiento = clasificar_banda(dias_vencimiento),
       disponibilidad = dplyr::case_when(
         rubro_liquidez == "Caja y bóvedas" ~ "Inmediata",
         rubro_liquidez == "Encaje en el BCCR" ~
           "Encaje; no libre automáticamente",
         rubro_liquidez == "Inversiones restringidas" ~
-          "Restringida",
-        !is.na(fecha_liberacion) &
+          "Restringida",!is.na(fecha_liberacion) &
           as.Date(fecha_liberacion) > periodo ~
-          "Restringida hasta liberación",
-        !is.na(saldo_comprometido) &
+          "Restringida hasta liberación",!is.na(saldo_comprometido) &
           saldo_comprometido > 0 &
           (
             is.na(fecha_fin_compromiso) |
@@ -173,18 +162,9 @@ calcular_tasas <- function(datos_observados) {
       periodo = as.Date(periodo),
       alias = as.character(alias),
       moneda = as.character(moneda),
-      tasa_retiro = tasa_acotada(
-        retiros_vista_30d,
-        saldo_vista_inicio_30d
-      ),
-      tasa_renovacion = tasa_acotada(
-        principal_renovado_30d,
-        vencimientos_plazo_30d
-      ),
-      tasa_cobro = tasa_acotada(
-        cobros_recibidos_30d,
-        cobros_programados_30d
-      ),
+      tasa_retiro = tasa_acotada(retiros_vista_30d, saldo_vista_inicio_30d),
+      tasa_renovacion = tasa_acotada(principal_renovado_30d, vencimientos_plazo_30d),
+      tasa_cobro = tasa_acotada(cobros_recibidos_30d, cobros_programados_30d),
       tasa_uso_lineas = tasa_acotada(
         desembolsos_lineas_30d,
         limite_lineas_otorgadas_inicio_30d
@@ -225,10 +205,7 @@ preparar_flujos <- function(datos_contrato, saldos, tasas) {
       fecha_pago_contractual = as.Date(fecha_pago_contractual)
     ) |>
     dplyr::left_join(metadatos, by = "id_registro") |>
-    dplyr::left_join(
-      tasas,
-      by = c("periodo", "alias", "moneda")
-    )
+    dplyr::left_join(tasas, by = c("periodo", "alias", "moneda"))
   
   if (anyNA(pagos$clase_contable))
     stop("Hay pagos sin registro contable vinculado.")
@@ -240,11 +217,7 @@ preparar_flujos <- function(datos_contrato, saldos, tasas) {
   pagos <- pagos |>
     dplyr::mutate(
       dias = as.integer(fecha_pago_contractual - periodo),
-      sentido = dplyr::if_else(
-        clase_contable == "Activo",
-        "Entrada",
-        "Salida"
-      ),
+      sentido = dplyr::if_else(clase_contable == "Activo", "Entrada", "Salida"),
       estado_plazo = dplyr::case_when(
         dias <= 0 & sentido == "Entrada" ~
           "Cobro vencido/no confirmado",
@@ -253,29 +226,13 @@ preparar_flujos <- function(datos_contrato, saldos, tasas) {
         TRUE ~ "Futuro"
       ),
       # Por prudencia, las salidas exigibles se presentan en la primera banda.
-      banda = dplyr::if_else(
-        dias <= 0 & sentido == "Salida",
-        "1-8",
-        clasificar_banda(dias)
-      ),
+      banda = dplyr::if_else(dias <= 0 & sentido == "Salida", "1-8", clasificar_banda(dias)),
       efectivo_contractual = pmax(0, monto_capital) +
         pmax(0, monto_interes),
       horizonte_30d = dias <= 30 & dias > 0,
-      ajuste_cobro = dplyr::if_else(
-        !is.na(tasa_cobro),
-        tasa_cobro,
-        1
-      ),
-      ajuste_retiro = dplyr::if_else(
-        !is.na(tasa_retiro),
-        tasa_retiro,
-        1
-      ),
-      ajuste_renovacion = dplyr::if_else(
-        !is.na(tasa_renovacion),
-        tasa_renovacion,
-        0
-      ),
+      ajuste_cobro = dplyr::if_else(!is.na(tasa_cobro), tasa_cobro, 1),
+      ajuste_retiro = dplyr::if_else(!is.na(tasa_retiro), tasa_retiro, 1),
+      ajuste_renovacion = dplyr::if_else(!is.na(tasa_renovacion), tasa_renovacion, 0),
       restriccion_cobro =
         rubro_liquidez == "Inversiones restringidas" &
         !is.na(fecha_liberacion) &
@@ -339,10 +296,7 @@ preparar_flujos <- function(datos_contrato, saldos, tasas) {
     "nota_ajuste"
   )
   
-  pagos <- dplyr::select(
-    pagos,
-    dplyr::all_of(columnas)
-  )
+  pagos <- dplyr::select(pagos, dplyr::all_of(columnas))
   
   # Las líneas de crédito concedidas no utilizadas permanecen en saldos,
   # estructura y vencimientos como posiciones contingentes. No se les asigna
@@ -360,35 +314,19 @@ resumir_bandas <- function(flujos) {
     dplyr::group_by(periodo, alias, moneda, banda) |>
     dplyr::summarise(
       entradas_contrato = sum(
-        dplyr::if_else(
-          sentido == "Entrada",
-          efectivo_contractual,
-          0
-        ),
+        dplyr::if_else(sentido == "Entrada", efectivo_contractual, 0),
         na.rm = TRUE
       ),
       salidas_contrato = sum(
-        dplyr::if_else(
-          sentido == "Salida",
-          efectivo_contractual,
-          0
-        ),
+        dplyr::if_else(sentido == "Salida", efectivo_contractual, 0),
         na.rm = TRUE
       ),
       entradas_ajustadas = sum(
-        dplyr::if_else(
-          sentido == "Entrada",
-          efectivo_ajustado,
-          0
-        ),
+        dplyr::if_else(sentido == "Entrada", efectivo_ajustado, 0),
         na.rm = TRUE
       ),
       salidas_ajustadas = sum(
-        dplyr::if_else(
-          sentido == "Salida",
-          efectivo_ajustado,
-          0
-        ),
+        dplyr::if_else(sentido == "Salida", efectivo_ajustado, 0),
         na.rm = TRUE
       ),
       .groups = "drop"
@@ -403,13 +341,7 @@ resumir_bandas <- function(flujos) {
         salidas_ajustadas = 0
       )
     ) |>
-    dplyr::mutate(
-      banda = factor(
-        banda,
-        levels = bandas_liquidez,
-        ordered = TRUE
-      )
-    ) |>
+    dplyr::mutate(banda = factor(banda, levels = bandas_liquidez, ordered = TRUE)) |>
     dplyr::arrange(periodo, alias, moneda, banda) |>
     dplyr::group_by(periodo, alias, moneda) |>
     dplyr::mutate(
@@ -497,47 +429,19 @@ crear_tabla_maestra <- function(estructura, rubros) {
     dplyr::summarise(
       saldo = sum(saldo),
       operaciones = sum(operaciones),
-      disponibilidad = paste(
-        sort(unique(disponibilidad)),
-        collapse = "; "
-      ),
+      disponibilidad = paste(sort(unique(disponibilidad)), collapse = "; "),
       .groups = "drop"
     )
   
   matriz <- rubros |>
     dplyr::mutate(
-      banda_codigo = paste0(
-        "d",
-        gsub("[+-]", "_", banda)
-      ),
-      entradas_contrato = dplyr::if_else(
-        sentido == "Entrada",
-        contractual,
-        0
-      ),
-      salidas_contrato = dplyr::if_else(
-        sentido == "Salida",
-        contractual,
-        0
-      ),
-      entradas_ajustadas = dplyr::if_else(
-        sentido == "Entrada",
-        ajustado,
-        0
-      ),
-      salidas_ajustadas = dplyr::if_else(
-        sentido == "Salida",
-        ajustado,
-        0
-      )
+      banda_codigo = paste0("d", gsub("[+-]", "_", banda)),
+      entradas_contrato = dplyr::if_else(sentido == "Entrada", contractual, 0),
+      salidas_contrato = dplyr::if_else(sentido == "Salida", contractual, 0),
+      entradas_ajustadas = dplyr::if_else(sentido == "Entrada", ajustado, 0),
+      salidas_ajustadas = dplyr::if_else(sentido == "Salida", ajustado, 0)
     ) |>
-    dplyr::group_by(
-      periodo,
-      alias,
-      moneda,
-      cuenta_contable,
-      banda_codigo
-    ) |>
+    dplyr::group_by(periodo, alias, moneda, cuenta_contable, banda_codigo) |>
     dplyr::summarise(
       entradas_contrato = sum(entradas_contrato),
       salidas_contrato = sum(salidas_contrato),
@@ -563,25 +467,10 @@ crear_tabla_maestra <- function(estructura, rubros) {
     )
   
   base |>
-    dplyr::left_join(
-      matriz,
-      by = c(
-        "periodo",
-        "alias",
-        "moneda",
-        "cuenta_contable"
-      )
-    ) |>
-    dplyr::mutate(
-      dplyr::across(
-        dplyr::starts_with(c(
-          "entradas_",
-          "salidas_",
-          "brecha_"
-        )),
-        ~ tidyr::replace_na(.x, 0)
-      )
-    )
+    dplyr::left_join(matriz, by = c("periodo", "alias", "moneda", "cuenta_contable")) |>
+    dplyr::mutate(dplyr::across(dplyr::starts_with(c(
+      "entradas_", "salidas_", "brecha_"
+    )), ~ tidyr::replace_na(.x, 0)))
 }
 
 crear_modelo_liquidez <- function(datos_contables,
@@ -634,95 +523,148 @@ crear_modelo_liquidez <- function(datos_contables,
 
 ################## Punto 4 ##################
 
-# Supuesto inicial de encaje
-tasa_encaje <- 0.15
-
-# Función que le añade las columnas de los recursos utilizados para cubrir los 
-# faltantes de liquidez al dataframe de bandas del modelo anterior
-#cobertura_faltantes <- function(modelo){
+# Función auxiliar que vende las inversiones de una entidad por periodo, moneda
+# y bandas, de menor a mayor costo, para cubrir el faltante de liquidez
+venta_inv <- function(temporal,
+                      bandas,
+                      saldos,
+                      periodo,
+                      entidad,
+                      moneda,
+                      banda,
+                      j) {
+  inversiones <- saldos %>%
+    filter(
+      .data$rubro_liquidez %in% c("Inversiones", "Inversiones restringidas"),
+      .data$periodo == .env$periodo,
+      .data$alias == .env$entidad,
+      .data$moneda == .env$moneda,
+      .data$banda_num >= .env$j
+    ) %>%
+    arrange(.data$valor_cotizado_venta_urgente)
   
-  # Se selecciona el dataframe a modificar
-  bandas <- modelo$bandas
+  remanente_inv <- 0
   
-  # Se suman los valores de las disponibilidades utilizables por periodo, entidad
-  # y moneda
-  saldos_caja <- modelo$saldos %>%
-    filter(rubro_liquidez == "Caja y bóvedas") %>%
-    group_by(periodo, alias, moneda) %>%
+  for (i in 1:nrow(inversiones)) {
+    temporal <- temporal + inversiones$valor_cotizado_venta_urgente[i]
+    
+    if (temporal >= 0) {
+      if (i != nrow(inversiones)) {
+        remanente_inv <- sum(inversiones$valor_cotizado_venta_urgente[(i + 1):nrow(inversiones)])
+        
+      }
+      
+      break
+      
+    }
+    
+  }
+  
+  inversiones_vend <- inversiones[1:i, ]
+  
+  inv_resumen <- inversiones_vend %>%
+    group_by(periodo, alias, moneda, banda) %>%
     summarise(
-      saldo_caja = sum(saldo_contable, na.rm = TRUE),
+      monto_capital = sum(monto_capital, na.rm = TRUE),
+      monto_interes = sum(monto_interes, na.rm = TRUE),
       .groups = "drop"
     )
   
+  bandas <- bandas %>%
+    left_join(inv_resumen, by = c("periodo", "alias", "moneda", "banda")) %>%
+    mutate(
+      brecha_contrato = if_else(
+        .data$banda == .env$banda,
+        brecha_contrato,
+        brecha_contrato -
+          coalesce(monto_capital, 0) -
+          coalesce(monto_interes, 0)
+      )
+    ) %>%
+    select(-monto_capital, -monto_interes)
+  
+  return(list(
+    temporal = temporal,
+    remanente_inv = remanente_inv,
+    bandas = bandas
+  ))
+}
+
+# Supuesto inicial de encaje
+tasa_encaje <- 0.15
+
+# Función que añade las columnas de recursos utilizados para cubrir faltantes de
+# liquidez y de recursos remanentes al dataframe de bandas
+cobertura_faltantes <- function(modelo) {
+  # Se selecciona el dataframe a modificar
+  bandas <- modelo$bandas
+  
+  # Dataframe de saldos
+  saldos <- modelo$saldos
+  
+  # Se le agrega la banda respectiva a cada fila
+  saldos <- saldos %>%
+    left_join(modelo$flujos %>% select(id_registro, banda), by = "id_registro")
+  
+  # Se le agrega el número de la banda respectiva
+  saldos$banda_num <- case_when(
+    saldos$banda == "1-8" ~ 1,
+    saldos$banda == "9-15" ~ 2,
+    saldos$banda == "16-30" ~ 3,
+    saldos$banda == "31-89" ~ 4,
+    saldos$banda == "90-180" ~ 5,
+    saldos$banda == "181+" ~ 6
+  )
+  
+  # Se suman los valores de las disponibilidades utilizables por periodo, entidad
+  # y moneda
+  saldos_caja <- saldos %>%
+    filter(rubro_liquidez == "Caja y bóvedas") %>%
+    group_by(periodo, alias, moneda) %>%
+    summarise(saldo_caja = sum(saldo_contable, na.rm = TRUE),
+              .groups = "drop")
+  
   # Se asigna el saldo de la caja solo a las bandas iniciales de 1 a 8 días
   bandas <- bandas %>%
-    left_join(
-      saldos_caja,
-      by = c("periodo", "alias", "moneda")
-    ) %>%
-    mutate(
-      saldo_caja = if_else(
-        banda == "1-8",
-        saldo_caja,
-        0
-      )
-    )
+    left_join(saldos_caja, by = c("periodo", "alias", "moneda")) %>%
+    mutate(saldo_caja = if_else(banda == "1-8", saldo_caja, 0))
   
   # Disponibilidades utilizables remanentes
   bandas$saldo_caja_rem <- numeric(length = nrow(bandas))
   
   # Reservas mantenidas por periodo, entidad y moneda
-  reserv_man <- modelo$saldos %>%
+  reserv_man <- saldos %>%
     filter(rubro_liquidez == "Encaje en el BCCR") %>%
     group_by(periodo, alias, moneda) %>%
-    summarise(
-      reserv_man = sum(saldo_contable, na.rm = TRUE),
-      .groups = "drop"
-    )
+    summarise(reserv_man = sum(saldo_contable, na.rm = TRUE),
+              .groups = "drop")
   
   # Base sujeta a encaje por periodo, entidad y moneda
-  base_encaje <- modelo$saldos %>%
-    filter(rubro_liquidez %in% c("Depósitos a la vista",
-                                 "Depósitos a plazo")) %>%
+  base_encaje <- saldos %>%
+    filter(rubro_liquidez %in% c("Depósitos a la vista", "Depósitos a plazo")) %>%
     group_by(periodo, alias, moneda) %>%
-    summarise(
-      base_encaje = sum(saldo_contable, na.rm = TRUE),
-      .groups = "drop"
-    )
+    summarise(base_encaje = sum(saldo_contable, na.rm = TRUE),
+              .groups = "drop")
   
-  # Reservas excedentes por periodo, entidad, moneda
+  # Reservas excedentes por periodo, entidad y moneda
   reserv_exc <- reserv_man %>%
-    left_join(
-      base_encaje,
-      by = c("periodo", "alias", "moneda")
-    ) %>%
-    mutate(
-      reserv_exc = pmax(0, reserv_man - tasa_encaje * base_encaje)
-    ) %>%
+    left_join(base_encaje, by = c("periodo", "alias", "moneda")) %>%
+    mutate(reserv_exc = pmax(0, reserv_man - tasa_encaje * base_encaje)) %>%
     select(-reserv_man, -base_encaje)
   
   # Se asignan las reservas excedentes solo a las bandas iniciales de 1 a 8 días
   bandas <- bandas %>%
-    left_join(
-      reserv_exc,
-      by = c("periodo", "alias", "moneda")
-    ) %>%
-    mutate(
-      reserv_exc = if_else(
-        banda == "1-8",
-        reserv_exc,
-        0
-      )
-    )
+    left_join(reserv_exc, by = c("periodo", "alias", "moneda")) %>%
+    mutate(reserv_exc = if_else(banda == "1-8", reserv_exc, 0))
   
   # Reservas excedentes remanentes
   bandas$reserv_exc_rem <- numeric(length = nrow(bandas))
   
   # Valor de venta urgente de todas las inversiones e inversiones restringidas
   # por periodo, entidad, moneda y banda
-  venta_instr <- modelo$saldos %>%
+  venta_instr <- saldos %>%
     filter(rubro_liquidez %in% c("Inversiones", "Inversiones restringidas")) %>%
-    group_by(periodo, alias, moneda, banda_vencimiento) %>%
+    group_by(periodo, alias, moneda, banda) %>%
     summarise(
       venta_instr = sum(valor_cotizado_venta_urgente, na.rm = TRUE),
       .groups = "drop"
@@ -730,41 +672,22 @@ tasa_encaje <- 0.15
   
   # Se asigna el valor de venta urgente de las inversiones a la banda respectiva
   bandas <- bandas %>%
-    left_join(
-      venta_instr,
-      by = c(
-        "periodo",
-        "alias",
-        "moneda",
-        "banda" = "banda_vencimiento"
-      )
-    )
+    left_join(venta_instr, by = c("periodo", "alias", "moneda", "banda"))
   
   # Valor de la venta de instrumentos remanente
   bandas$venta_instr_rem <- numeric(length = nrow(bandas))
   
-  # Líneas de crédito utilizables por periodo, entidad, moneda
-  lineas_cred <- modelo$saldos %>%
+  # Líneas de crédito utilizables por periodo, entidad y moneda
+  lineas_cred <- saldos %>%
     filter(rubro_liquidez == "Líneas concedidas no utilizadas") %>%
     group_by(periodo, alias, moneda) %>%
-    summarise(
-      lineas_cred = sum(saldo_contable, na.rm = TRUE),
-      .groups = "drop"
-    )
+    summarise(lineas_cred = sum(saldo_contable, na.rm = TRUE),
+              .groups = "drop")
   
-  # Se asignan las líneas de crédito solo a las bandas de más de 181 días
+  # Se asignan las líneas de crédito solo a las bandas iniciales de 1 a 8 días
   bandas <- bandas %>%
-    left_join(
-      lineas_cred,
-      by = c("periodo", "alias", "moneda")
-    ) %>%
-    mutate(
-      lineas_cred = if_else(
-        banda == "181+",
-        lineas_cred,
-        0
-      )
-    )
+    left_join(lineas_cred, by = c("periodo", "alias", "moneda")) %>%
+    mutate(lineas_cred = if_else(banda == "1-8", lineas_cred, 0))
   
   # Valor de las líneas de crédito remanente
   bandas$lineas_cred_rem <- numeric(length = nrow(bandas))
@@ -774,20 +697,34 @@ tasa_encaje <- 0.15
   
   # Se recorre las bandas para cubrir los faltantes de liquidez con los recursos disponibles
   for (i in seq(1, nrow(bandas), by = 6)) {
-    
     # Filas del bloque, es decir, las bandas
     filas <- i:min(i + 5, nrow(bandas))
     
     # Se itera sobre las bandas de cada bloque
-    for(j in 1:6){
+    for (j in 1:6) {
+      # Si es la última banda, la línea de crédito vence y ya no puede utilizarse
+      if (j == 6) {
+        bandas$lineas_cred[filas[j]] <- 0
+        
+      }
       
       # Si la brecha es negativa se usan las disponibilidades utilizables, sino
       # se actualizan los recursos remanentes
-      if(bandas$brecha_contrato[filas[j]] < 0){
-        
+      if (bandas$brecha_contrato[filas[j]] < 0) {
         temporal <- bandas$brecha_contrato[filas[j]] + bandas$saldo_caja[filas[j]]
         
-      }else{
+      } else{
+        if (j != 6) {
+          bandas$saldo_caja[filas[j + 1]] <- bandas$saldo_caja[filas[j]]
+          
+          bandas$reserv_exc[filas[j + 1]] <- bandas$reserv_exc[filas[j]]
+          
+          bandas$lineas_cred[filas[j + 1]] <- bandas$lineas_cred[filas[j]]
+          
+        } else{
+          bandas$lineas_cred[filas[j]] <- 0
+          
+        }
         
         bandas$saldo_caja_rem[filas[j]] <- bandas$saldo_caja[filas[j]]
         
@@ -797,25 +734,27 @@ tasa_encaje <- 0.15
         
         bandas$lineas_cred_rem[filas[j]] <- bandas$lineas_cred[filas[j]]
         
-        if(j != 6){
-          
-          bandas$saldo_caja[filas[j+1]] <- bandas$saldo_caja[filas[j]]
-          
-          bandas$reserv_exc[filas[j+1]] <- bandas$reserv_exc[filas[j]] 
-          
-        }
-        
         next
         
       } # Fin if-else
       
       # Si el primer recurso no fue suficiente se utilizan las reservas excedentes,
       # sino se actualizan los recursos remanentes
-      if(temporal < 0){
-        
+      if (temporal < 0) {
         temporal <- temporal + bandas$reserv_exc[filas[j]]
         
-      }else{
+      } else{
+        if (j != 6) {
+          bandas$saldo_caja[filas[j + 1]] <- temporal
+          
+          bandas$reserv_exc[filas[j + 1]] <- bandas$reserv_exc[filas[j]]
+          
+          bandas$lineas_cred[filas[j + 1]] <- bandas$lineas_cred[filas[j]]
+          
+        } else{
+          bandas$lineas_cred[filas[j]] <- 0
+          
+        }
         
         bandas$saldo_caja_rem[filas[j]] <- temporal
         
@@ -825,25 +764,38 @@ tasa_encaje <- 0.15
         
         bandas$lineas_cred_rem[filas[j]] <- bandas$lineas_cred[filas[j]]
         
-        if(j != 6){
-        
-          bandas$saldo_caja[filas[j+1]] <- temporal
-        
-          bandas$reserv_exc[filas[j+1]] <- bandas$reserv_exc[filas[j]]
-        
-        }
-        
         next
         
       } # Fin if-else
       
-      # Si los primeros 2 recursos no fueron suficientes, se venden inversiones,
+      # Si los primeros 2 recursos no fueron suficientes se venden inversiones,
       # sino se actualizan los recursos remanentes
-      if(temporal < 0){
+      if (temporal < 0) {
+        temporal_remanente <- venta_inv(
+          temporal,
+          bandas,
+          saldos,
+          bandas$periodo[filas[j]],
+          bandas$alias[filas[j]],
+          bandas$moneda[filas[j]],
+          bandas$banda[filas[j]],
+          j
+        )
         
-        temporal <- temporal + bandas$venta_instr[filas[j]]
+        temporal <- temporal_remanente$temporal
         
-      }else{
+        bandas <- temporal_remanente$bandas
+        
+      } else{
+        if (j != 6) {
+          bandas$reserv_exc[filas[j + 1]] <- temporal
+          
+          bandas$lineas_cred[filas[j + 1]] <- bandas$lineas_cred[filas[j]]
+          
+        } else{
+          bandas$lineas_cred[filas[j]] <- 0
+          
+        }
         
         bandas$reserv_exc_rem[filas[j]] <- temporal
         
@@ -851,25 +803,29 @@ tasa_encaje <- 0.15
         
         bandas$lineas_cred_rem[filas[j]] <- bandas$lineas_cred[filas[j]]
         
-        if(j != 6){
-        
-          bandas$reserv_exc[filas[j+1]] <- temporal
-        
-        }
-        
         next
         
       } # Fin if-else
       
       # Si todavía no se cubre el faltante se usa el financiamiento disponible,
       # sino se actualizan los recursos remanentes
-      if(temporal < 0){
-        
+      if (temporal < 0) {
         temporal <- temporal + bandas$lineas_cred[filas[j]]
         
-      }else{
+      } else{
+        if (j != 6) {
+          bandas$saldo_caja[filas[j + 1]] <- temporal
+          
+          bandas$lineas_cred[filas[j + 1]] <- bandas$lineas_cred[filas[j]]
+          
+        } else{
+          bandas$falt_resid <- temporal
+          
+          bandas$lineas_cred[filas[j]] <- 0
+          
+        }
         
-        bandas$venta_instr_rem[filas[j]] <- temporal
+        bandas$venta_instr_rem[filas[j]] <- temporal_remanente$remanente_inv
         
         bandas$lineas_cred_rem[filas[j]] <- bandas$lineas_cred[filas[j]]
         
@@ -877,15 +833,18 @@ tasa_encaje <- 0.15
         
       } # Fin if-else
       
-      # En caso de no cubrirse el faltante, se registra como un faltante residual,
-      # sino entonces se actualiza el valor remanente de las líneas de crédito
-      if(temporal < 0){
-        
+      # En caso de no cubrirse el faltante, se registra como un faltante residual
+      # positivo, sino entonces se actualiza el valor remanente de las líneas de crédito
+      if (temporal < 0) {
         bandas$falt_resid[filas[j]] <- temporal
         
-      }else{
-        
-        bandas$lineas_cred_rem[filas[j]] <- temporal
+      } else{
+        if (j != 6) {
+          bandas$lineas_cred[filas[j + 1]] <- temporal
+          
+          bandas$lineas_cred_rem[filas[j]] <- temporal
+          
+        }
         
       } # Fin if-else
       
@@ -893,10 +852,10 @@ tasa_encaje <- 0.15
     
   } # Fin for i
   
-#}
+  return(bandas)
   
-################## Punto 5 ##################
-  
+}
 
-  
-  
+################## Punto 5 ##################
+
+
