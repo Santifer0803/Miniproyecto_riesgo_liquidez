@@ -92,10 +92,13 @@ coberturas$bandas <- coberturas$bandas |>
     lineas_cred_rem = 0
   )
 
+# Se agrega el detalle de las bandas al modelo
 modelo$bandas <- coberturas$bandas
 
+# Activos liquidados por entidad
 act_liquidados <- coberturas$act_liquidados
 
+# Formato de los montos para tablas
 formato_monto <- function(x) {
   if (length(x) == 0 || is.na(x))
     return("No disponible")
@@ -109,6 +112,7 @@ formato_monto <- function(x) {
   " millones")
 }
 
+# Función para crear tablas interactivas
 tabla_interactiva <- function(datos, pagina = 12) {
   DT::datatable(
     datos,
@@ -123,6 +127,7 @@ tabla_interactiva <- function(datos, pagina = 12) {
   )
 }
 
+# Diseño de la aplicación
 ui <- fluidPage(
   tags$head(tags$style(HTML(
     paste0(
@@ -264,6 +269,7 @@ ui <- fluidPage(
   )
 )
 
+# Servidor que define, internamente, qué hace la aplicación
 server <- function(input, output, session) {
   filtros <- reactive({
     list(
