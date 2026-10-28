@@ -1,4 +1,3 @@
-
 # Librerías necesarias
 pacman::p_load(janitor, knitr, plotly, readxl, shiny, tidyverse, here, DT)
 
@@ -69,7 +68,29 @@ modelo <- crear_modelo_liquidez(datos_contables,
                                 datos_observados,
                                 datos_catalogo)
 
-coberturas <- cobertura_faltantes(modelo)
+# Las líneas contingentes se conservan con sus saldos originales en modelo.
+# Para el punto 4 se usa una copia donde su importe no aporta recursos de cobertura.
+# De esta manera no se modifican las funciones del módulo 4 ni las posiciones originales.
+modelo_para_cobertura <- modelo
+modelo_para_cobertura$saldos <- modelo_para_cobertura$saldos |>
+  dplyr::mutate(
+    saldo_contable = dplyr::if_else(
+      clase_contable == "Contingente" |
+        rubro_liquidez == "Líneas concedidas no utilizadas",
+      0,
+      saldo_contable
+    )
+  )
+
+coberturas <- cobertura_faltantes(modelo_para_cobertura)
+
+# Las columnas de líneas del módulo 4 son meramente auxiliares.
+# No deben mostrar recursos ni remanentes, pues no participan en la cobertura.
+coberturas$bandas <- coberturas$bandas |>
+  dplyr::mutate(
+    lineas_cred = 0,
+    lineas_cred_rem = 0
+  )
 
 modelo$bandas <- coberturas$bandas
 
@@ -224,7 +245,7 @@ ui <- fluidPage(
               "El escenario ajustado usa tasas históricas del corte solamente hasta 30 días."
             ),
             tags$li(
-              "Líneas concedidas: desembolso contingente estimado; líneas recibidas: recurso potencial, no entrada contractual."
+              "Líneas concedidas: solo registro contingente, sin salidas ni cobertura; líneas recibidas: recurso potencial, no entrada contractual."
             ),
             tags$li(
               "Cuentas sin fecha, patrimonio, caja y encaje: no se inventan flujos contractuales."
