@@ -58,7 +58,7 @@ datos_contables <- datos_contables |>
   left_join(datos_tc, c("periodo", "moneda"))
 
 # Se añade el tipo de cambio a los datos observados
-datos_observados <- datos_observados |> 
+datos_observados <- datos_observados |>
   left_join(datos_tc, c("periodo", "moneda"))
 
 # Parte 2.1, 2.2, 2.3 y 2.4 del miniproyecto de riesgo de liquidez
@@ -69,7 +69,11 @@ modelo <- crear_modelo_liquidez(datos_contables,
                                 datos_observados,
                                 datos_catalogo)
 
-modelo$bandas <- cobertura_faltantes(modelo)
+coberturas <- cobertura_faltantes(modelo)
+
+modelo$bandas <- coberturas$bandas
+
+act_liquidados <- coberturas$act_liquidados
 
 formato_monto <- function(x) {
   if (length(x) == 0 || is.na(x))
@@ -398,7 +402,7 @@ server <- function(input, output, session) {
                          )) +
       ggplot2::geom_col(show.legend = FALSE) +
       ggplot2::coord_flip() +
-      ggplot2::facet_wrap( ~ clase_contable, scales = "free_y") +
+      ggplot2::facet_wrap(~ clase_contable, scales = "free_y") +
       ggplot2::labs(x = "Rubro", y = "Millones de la moneda seleccionada") +
       ggplot2::theme_minimal()
     plotly::ggplotly(p, tooltip = "text")
