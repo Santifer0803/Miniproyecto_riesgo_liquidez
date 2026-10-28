@@ -149,7 +149,6 @@ ui <- fluidPage(
   
   # Formato de cada página
   sidebarLayout(
-    
     # Panel lateral
     sidebarPanel(
       width = 3,
@@ -200,7 +199,6 @@ ui <- fluidPage(
       
       # Pestañas superiores que funcionan como las distintas páginas
       tabsetPanel(
-        
         # Pestaña de resumen
         tabPanel(
           "Resumen",
@@ -310,7 +308,7 @@ ui <- fluidPage(
           h4("Verificaciones de integridad"),
           DTOutput("tabla_controles"),
           
-          # Tesxto explicativo con las reglas de interpretación del modelo
+          # Texto explicativo con las reglas de interpretación del modelo
           h4("Reglas de interpretación"),
           tags$ul(
             tags$li(
@@ -338,8 +336,42 @@ ui <- fluidPage(
           ),
           
           # Normativa de la SUGEF
+          h4("Anexos consultados"),
           tags$a(href = "https://www.sugef.fi.cr/normativa/NormativaTransversal.aspx", target = "_blank", "Reglamento y anexos SUGEF")
-        )
+        ),
+        
+        # Pestaña de métricas de liquidez
+        tabPanel(
+          "Medidas de liquidez",
+          br(),
+          
+          # Texto explicativo inicial
+          p(
+            "El gráfico muestra la comparación del Indicador de cobertura de liquidez (ICL) y el Indicador de financiamiento estable (IFNE). Para cumplir con la normativa, ambos deben ser mayores a 1."
+          ),
+          
+          # Gráfico de las métricas de liquidez
+          plotlyOutput("grafico_icl_ifne", height = "340px"),
+          
+          # Texto explicativo con las reglas de interpretación del modelo
+          h4("Supuestos utilizados"),
+          tags$ul(
+            tags$li(
+              "El ICL cambia según la moneda, el IFNE se mantiene constante debido a que se consideraron todos los activos en moneda nacional."
+            ),
+            tags$li("Se utilizó un supuesto de encaje del 15% para el ICL."),
+            tags$li(
+              "Para las entradas de efectivo del ICL, se usó el promedio de la tasa de cobro histórica como supuesto."
+            ),
+            tags$li(
+              "Aunque no se refleja en el resultado final, se hicieron comprobaciones adicionales sobre los requisitos de cada categoría antes de calcularlas."
+            )
+          ),
+          
+          # Normativa consultada de la SUGEF
+          h4("Anexos consultados"),
+          tags$a(href = "https://www.sugef.fi.cr/normativa/normativa_vigente/SUGEF%2017-13%20(v18%201°%20SET2024).pdf", target = "_blank", "Acuerdo SUGEF 17-13")
+        ),
       )
     )
   )
@@ -640,9 +672,52 @@ server <- function(input, output, session) {
   })
   output$tabla_controles <- DT::renderDT(tabla_interactiva(modelo$verificaciones, 5))
   
+  # Datos del ICL y el IFNE
+  df_icl_ifne <- reactive({
+    data.frame(categoria = c("ICL", "IFNE"),
+               metrica = c(
+                 icl(
+                   datos = modelo$saldos,
+                   entidad = input$entidad,
+                   fecha = as.Date(input$corte),
+                   moneda_var = input$moneda
+                 ),
+                 ifne(
+                   datos = modelo$saldos,
+                   entidad = input$entidad,
+                   fecha = as.Date(input$corte)
+                 )
+               ))
+  })
+  
+  # Gráfico con el ICL e IFNE
+  output$grafico_icl_ifne <- renderPlotly({
+    # Se llama al dataframe
+    d <- df_icl_ifne()
+    
+    # Se genera el gráfico
+    plotly::plot_ly(
+      data = d,
+      x = ~ categoria,
+      y = ~ metrica,
+      type = "bar",
+      name = "Medida",
+      marker = list(color = "#247f79")
+    ) |>
+      plotly::layout(
+        xaxis = list(
+          title = "Medida"
+        ),
+        yaxis = list(title = "Unidades")
+      )
+  })
+  
+  # Función para hacer un archivo excel/csv de unos datos
   exportar_csv <- function(datos, archivo) {
     readr::write_excel_csv(datos, archivo, na = "")
   }
+  
+  # Descarga la tabla de brechas
   output$descargar_bandas <- downloadHandler(
     filename = function()
       paste0(
@@ -657,6 +732,8 @@ server <- function(input, output, session) {
     content = function(file)
       exportar_csv(bandas_actuales(), file)
   )
+  
+  # Descarga la tabla de rubros
   output$descargar_rubros <- downloadHandler(
     filename = function()
       paste0(
@@ -671,6 +748,8 @@ server <- function(input, output, session) {
     content = function(file)
       exportar_csv(rubros_actuales(), file)
   )
+  
+  # Descarga la tabla maestra
   output$descargar_maestra <- downloadHandler(
     filename = function()
       paste0(
@@ -685,6 +764,8 @@ server <- function(input, output, session) {
     content = function(file)
       exportar_csv(maestra_actual(), file)
   )
+  
+  # Descarga la tabla de saldos
   output$descargar_saldos <- downloadHandler(
     filename = function()
       paste0(
@@ -701,4 +782,5 @@ server <- function(input, output, session) {
   )
 }
 
+# Corre la aplicación juntando los elementos visuales y su funcionamiento interno
 shinyApp(ui = ui, server = server)
