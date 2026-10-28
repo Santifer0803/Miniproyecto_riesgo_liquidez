@@ -542,7 +542,7 @@ venta_inv <- function(temporal,
       .data$periodo == .env$periodo,
       .data$alias == .env$entidad,
       .data$moneda == .env$moneda,
-      .data$banda_num >= .env$j
+      .data$banda_num == .env$j
     ) %>%
     arrange(.data$valor_cotizado_venta_urgente)
   
@@ -1184,7 +1184,6 @@ var_liquidez <- function(datos) {
   
   # Se calcula el costo de liquidar inversiones
   coste_liquidacion <- datos |>
-    distinct(id_registro, .keep_all = TRUE) |> 
     mutate(
       valor_mercado = valor_mercado * crc_por_unidad,
       valor_cotizado_venta_urgente = valor_cotizado_venta_urgente * crc_por_unidad,
