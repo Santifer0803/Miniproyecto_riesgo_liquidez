@@ -98,6 +98,9 @@ modelo$bandas <- coberturas$bandas
 # Activos liquidados por entidad
 act_liquidados <- coberturas$act_liquidados
 
+# Valor en riesgo de cada entidad
+var_entidad <- var_liquidez(act_liquidados)
+
 # Formato de los montos para tablas
 formato_monto <- function(x) {
   if (length(x) == 0 || is.na(x))
