@@ -132,6 +132,7 @@ tabla_interactiva <- function(datos, pagina = 12) {
 
 # Diseño de la aplicación
 ui <- fluidPage(
+  # Estilo por CSS
   tags$head(tags$style(HTML(
     paste0(
       "body { background-color: #f7f9fc; color: #1d2939; }",
@@ -142,26 +143,44 @@ ui <- fluidPage(
       ".metric span { font-size: 18px; font-weight: 600; }"
     )
   ))),
-  titlePanel("Riesgo de liquidez | Módulos 2.1 a 2.3"),
+  
+  # Título de la aplicación
+  titlePanel("Riesgo de liquidez"),
+  
+  # Formato de cada página
   sidebarLayout(
+    
+    # Panel lateral
     sidebarPanel(
       width = 3,
+      
+      # Formato para la selección de la entidad
       selectInput("entidad", "Entidad", choices = sort(unique(
         modelo$saldos$alias
       ))),
+      
+      # Formato para la selección de la fecha de corte
       selectInput("corte", "Fecha de corte", choices = format(sort(
         unique(modelo$saldos$periodo)
       ), "%Y-%m-%d")),
+      
+      # Formato para la selección de la moneda
       selectInput("moneda", "Moneda", choices = c("MN", "ME")),
+      
+      # Formato para la selección del escenario
       selectInput(
         "escenario",
         "Vista de flujos",
         choices = c("Contractual", "Ajustado por comportamiento")
       ),
+      
+      # Texto explicativo adicional
       helpText("MN: colones; ME: dólares. Montos sin conversión cruzada."),
       helpText(
         "La vista ajustada usa observaciones del corte. No es un escenario de tensión regulatoria."
       ),
+      
+      # Botones de descarga para las distintas tablas
       hr(),
       downloadButton("descargar_bandas", "Descargar brechas (CSV)"),
       br(),
@@ -174,12 +193,20 @@ ui <- fluidPage(
       br(),
       downloadButton("descargar_maestra", "Descargar tabla maestra (CSV)")
     ),
+    
+    # Panel principal en donde se ubican los gráficos y las tablas
     mainPanel(
       width = 9,
+      
+      # Pestañas superiores que funcionan como las distintas páginas
       tabsetPanel(
+        
+        # Pestaña de resumen
         tabPanel(
           "Resumen",
           br(),
+          
+          # Tarjetas encontradas en la parte superior de la primera pestaña
           fluidRow(column(4, div(
             class = "metric", tags$b("Activos contables"), span(textOutput("kpi_activos", inline = TRUE))
           )), column(4, div(
@@ -187,59 +214,103 @@ ui <- fluidPage(
           )), column(4, div(
             class = "metric", tags$b("Brecha acumulada a 30 días"), span(textOutput("kpi_30", inline = TRUE))
           ))),
+          
+          # Texto de faltante acumulado y brecha
           br(),
           strong(textOutput("alerta")),
           p(
             "La brecha es anterior al uso de caja, encaje, venta de inversiones y otras medidas de cobertura."
           ),
+          
+          # Gráfico de la brecha
           plotlyOutput("grafico_brecha", height = "290px"),
+          
+          # Tabla de brechas por plazo
           h4("Brechas por plazo"),
           DTOutput("tabla_bandas"),
+          
+          # Tabla de comparación entre entidades
           h4("Comparación entre entidades (misma moneda y corte)"),
           DTOutput("tabla_comparativo")
         ),
+        
+        # Pestaña de estructura
         tabPanel(
           "Estructura",
           br(),
+          
+          # Gráfico de activos y pasivos
           h4("Composición de activos y pasivos"),
           plotlyOutput("grafico_estructura", height = "450px"),
+          
+          # Tabla de detalles del catálogo
           h4("Detalle del catálogo y disponibilidad"),
           DTOutput("tabla_estructura"),
+          
+          # Tabla de vencimiento de cada posición
           h4("Concentración de vencimientos de posiciones contables"),
           DTOutput("tabla_vencimientos"),
+          
+          # Mensaje de advertencia
           p(
             "Los vencimientos de saldos no son flujos sumables: el calendario de pagos se analiza en la siguiente pestaña."
           )
         ),
+        
+        # Pestaña de flujos y brechas
         tabPanel(
           "Flujos y brechas",
           br(),
+          
+          # Gráfico de activos y pasivos por banda
           plotlyOutput("grafico_flujos", height = "340px"),
+          
+          # Tabla de detalle por cuenta contable y banda
           h4("Detalle por cuenta contable y banda"),
           DTOutput("tabla_rubros"),
+          
+          # Tabla de cobros vencidos y no confirmados
           h4("Cobros vencidos y no confirmados"),
           DTOutput("tabla_atrasos"),
+          
+          # Tabla de supuestos históricos tomados para el análisis
           h4("Supuestos históricos del corte"),
           DTOutput("tabla_tasas"),
           textOutput("advertencia_tasas"),
+          
+          # Tabla para hacer seguimiento de los pagos y ajustes realizados
           h4("Trazabilidad de pagos y ajustes"),
           DTOutput("tabla_flujos_detallados")
         ),
+        
+        # Pestaña de tabla maestra
         tabPanel(
           "Tabla maestra",
           br(),
+          
+          # Texto explicativo inicial
           p(
             "Una fila por entidad, corte, moneda y cuenta contable. El saldo no se repite por banda; las columnas de flujos tienen sufijos d1_8, d9_15, d16_30, d31_89, d90_180 y d181_."
           ),
+          
+          # Tabla maestra con la información completa
           DTOutput("tabla_maestra")
         ),
+        
+        # Pestaña de metodología y controles
         tabPanel(
           "Metodología y controles",
           br(),
+          
+          # Tabla del catálogo clasificado por tratamiento general y rubro de liquidez
           h4("Catálogo clasificado"),
           DTOutput("tabla_catalogo"),
+          
+          # Tabla con las verificaciones de integridad requeridas
           h4("Verificaciones de integridad"),
           DTOutput("tabla_controles"),
+          
+          # Tesxto explicativo con las reglas de interpretación del modelo
           h4("Reglas de interpretación"),
           tags$ul(
             tags$li(
@@ -265,6 +336,8 @@ ui <- fluidPage(
           p(
             "Fuente de las clases: CONASSIF 6-18, artículo 26. Los tratamientos de liquidez son supuestos académicos y no equivalen al ICL/IFNE."
           ),
+          
+          # Normativa de la SUGEF
           tags$a(href = "https://www.sugef.fi.cr/normativa/NormativaTransversal.aspx", target = "_blank", "Reglamento y anexos SUGEF")
         )
       )
