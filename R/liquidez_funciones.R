@@ -21,7 +21,8 @@ clasificar_banda <- function(dias) {
 }
 
 tasa_acotada <- function(numerador, denominador) {
-  dplyr::if_else(!is.na(denominador) & denominador > 0, pmin(1, pmax(0, numerador / denominador)), NA_real_)
+  dplyr::if_else(!is.na(denominador) &
+                   denominador > 0, pmin(1, pmax(0, numerador / denominador)), NA_real_)
 }
 
 clasificar_catalogo <- function(datos_catalogo) {
@@ -226,7 +227,8 @@ preparar_flujos <- function(datos_contrato, saldos, tasas) {
         TRUE ~ "Futuro"
       ),
       # Por prudencia, las salidas exigibles se presentan en la primera banda.
-      banda = dplyr::if_else(dias <= 0 & sentido == "Salida", "1-8", clasificar_banda(dias)),
+      banda = dplyr::if_else(dias <= 0 &
+                               sentido == "Salida", "1-8", clasificar_banda(dias)),
       efectivo_contractual = pmax(0, monto_capital) +
         pmax(0, monto_interes),
       horizonte_30d = dias <= 30 & dias > 0,
@@ -528,6 +530,7 @@ crear_modelo_liquidez <- function(datos_contables,
 venta_inv <- function(temporal,
                       bandas,
                       saldos,
+                      act_liquidados,
                       periodo,
                       entidad,
                       moneda,
@@ -583,11 +586,16 @@ venta_inv <- function(temporal,
     ) %>%
     select(-monto_capital, -monto_interes)
   
-  return(list(
-    temporal = temporal,
-    remanente_inv = remanente_inv,
-    bandas = bandas
-  ))
+  act_liquidados <- rbind(act_liquidados, inversiones_vend)
+  
+  return(
+    list(
+      temporal = temporal,
+      remanente_inv = remanente_inv,
+      bandas = bandas,
+      act_liquidados = act_liquidados
+    )
+  )
 }
 
 # Supuesto inicial de encaje
@@ -615,6 +623,9 @@ cobertura_faltantes <- function(modelo) {
     saldos$banda == "90-180" ~ 5,
     saldos$banda == "181+" ~ 6
   )
+  
+  # Dataframe con las inversiones liquidadas por bandas, después se actualiza
+  act_liquidados <- saldos[1, ]
   
   # Se suman los valores de las disponibilidades utilizables por periodo, entidad
   # y moneda
@@ -775,6 +786,7 @@ cobertura_faltantes <- function(modelo) {
           temporal,
           bandas,
           saldos,
+          act_liquidados,
           bandas$periodo[filas[j]],
           bandas$alias[filas[j]],
           bandas$moneda[filas[j]],
@@ -785,6 +797,8 @@ cobertura_faltantes <- function(modelo) {
         temporal <- temporal_remanente$temporal
         
         bandas <- temporal_remanente$bandas
+        
+        act_liquidados <- temporal_remanente$act_liquidados
         
       } else{
         if (j != 6) {
@@ -852,10 +866,16 @@ cobertura_faltantes <- function(modelo) {
     
   } # Fin for i
   
-  return(bandas)
+  act_liquidados <- act_liquidados[-1, ]
+  
+  return(list(bandas = bandas, act_liquidados = act_liquidados))
   
 }
 
 ################## Punto 5 ##################
+
+
+
+
 
 
