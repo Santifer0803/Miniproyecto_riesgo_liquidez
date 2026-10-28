@@ -178,7 +178,7 @@ ui <- fluidPage(
       width = 9,
       tabsetPanel(
         tabPanel(
-          "Resumen 2.1",
+          "Resumen",
           br(),
           fluidRow(column(4, div(
             class = "metric", tags$b("Activos contables"), span(textOutput("kpi_activos", inline = TRUE))
@@ -199,7 +199,7 @@ ui <- fluidPage(
           DTOutput("tabla_comparativo")
         ),
         tabPanel(
-          "Estructura 2.2",
+          "Estructura",
           br(),
           h4("Composición de activos y pasivos"),
           plotlyOutput("grafico_estructura", height = "450px"),
@@ -212,7 +212,7 @@ ui <- fluidPage(
           )
         ),
         tabPanel(
-          "Flujos y brechas 2.3",
+          "Flujos y brechas",
           br(),
           plotlyOutput("grafico_flujos", height = "340px"),
           h4("Detalle por cuenta contable y banda"),
