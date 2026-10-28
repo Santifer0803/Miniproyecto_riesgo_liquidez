@@ -876,6 +876,297 @@ cobertura_faltantes <- function(modelo) {
 
 
 
+################## Punto 6 ##################
 
+# Función del cálculo del ICL
+icl <- function(datos, entidad = "B", fecha = ymd("2026-04-30"), moneda_var = "MN") {
+  # Se filtran los datos correspondientes
+  datos <- datos |>
+    filter(alias == entidad, periodo == fecha, moneda == moneda_var)
+  
+  # Activos de alta liquidez basados en el artículo 6 del acuerdo 17-13
+  activos_liquidez <- 0
+  
+  # Condicional para alterar la moneda
+  if(moneda_var == "MN"){
+    activos_liquidez <- datos |>
+      filter(cuenta_contable == 11101100) |>
+      pull(saldo_contable) +               # A i
+      datos_observados |>
+      filter(alias == entidad, periodo == fecha, moneda == moneda_var) |>
+      transmute(saldo_vista_inicio_30d,
+                vencimientos_plazo_30d,
+                principal_renovado_30d * -1) |>
+      sum() * 0.15 +                      # A ii 2 con el supuesto de encaje del 15%
+      datos |>
+      filter(sector_contraparte == "Gobierno central",
+             clase_contable == "Activo") |>
+      pull(valor_mercado) |>
+      sum() * 0.9 +                       # A vi y vii, según la moneda, se comprobó que ninguno tenía saldo comprometido acá
+      datos |>
+      filter(calificacion_internacional == "AA+") |>
+      pull(valor_mercado) |>
+      sum() * 0.85                        # B a ii, se comprobó que ninguno de estos instrumentos es de un emisor del mismo grupo
+  } else{
+    activos_liquidez <- datos |>
+      filter(cuenta_contable == 11101200) |>
+      pull(saldo_contable) +               # A i
+      datos_observados |>
+      filter(alias == entidad, periodo == fecha, moneda == moneda_var) |>
+      transmute(saldo_vista_inicio_30d,
+                vencimientos_plazo_30d,
+                principal_renovado_30d * -1) |>
+      sum() * 0.15 +                      # A ii 2 con el supuesto de encaje del 15%
+      datos |>
+      filter(sector_contraparte == "Gobierno central",
+             clase_contable == "Activo") |>
+      pull(valor_mercado) |>
+      sum() * 0.9 +                       # A vi y vii, según la moneda, se comprobó que ninguno tenía saldo comprometido acá
+      datos |>
+      filter(calificacion_internacional == "AA+") |>
+      pull(valor_mercado) |>
+      sum() * 0.85                        # B a ii, se comprobó que ninguno de estos instrumentos es de un emisor del mismo grupo
+  }
+  
+  
+  # Los activos de nivel 2 no deben superar el 40% de los activos de alta liquidez, según el artículo 6 del acuerdo 17-13
+  activos_liquidez <- ifelse((
+    datos |>
+      filter(calificacion_internacional == "AA+") |>
+      pull(valor_mercado) |>
+      sum() / activos_liquidez
+  ) > 0.4,
+  activos_liquidez - datos |>
+    filter(calificacion_internacional == "AA+") |>
+    pull(valor_mercado) |>
+    sum() + (0.4 * activos_liquidez),
+  activos_liquidez
+  )
+  
+  # Salidas de efectivo totales en los próximos 30 días naturales, basados en el artículo 5 del acuerdo 17-13
+  salidas_efectivo <- datos_observados |>
+    filter(alias == entidad, periodo == fecha, moneda == moneda_var) |>
+    transmute(
+      retiros_vista_30d,
+      vencimientos_plazo_30d,
+      principal_renovado_30d * -1,
+      desembolsos_lineas_30d
+    ) |>
+    sum()
+  
+  # Tasa de cobro promedio para las entradas de efectivos totales
+  tasa_cobro <- datos_observados |>
+    filter(alias == entidad, moneda == moneda_var) |>
+    pull(cobros_recibidos_30d) |>
+    sum() / datos_observados |>
+    filter(alias == entidad, moneda == moneda_var) |>
+    pull(cobros_programados_30d) |>
+    sum()
+  
+  # Entradas de efectivo totales en los próximos 30 días naturales, basados en el artículo 5 del acuerdo 17-13
+  entradas_efectivo <- datos_observados |>
+    filter(alias == entidad, periodo == fecha, moneda == moneda_var) |>
+    transmute(cartera_ajustada = cobros_programados_30d * tasa_cobro, linea_recibida_no_dispuesta) |>
+    sum()
+  
+  # Las entradas de efectivo no deben ser mayores al 75% de salidas de efectivo, según el artículo 8 del acuerdo 17-13
+  entradas_efectivo <- min(entradas_efectivo, 0.75 * salidas_efectivo)
+  
+  # Se calcula el ICL de acuerdo a lo establecido en el artículo 5 del acuerdo 17-13, debería ser mayor a 1 para cumplir el reglamento
+  icl <- activos_liquidez / (salidas_efectivo - entradas_efectivo)
+  
+  # Se devuelve el icl
+  return(icl)
+}
 
+# Función del cálculo del IFNE
+ifne <- function(datos,
+                 entidad = "B",
+                 fecha = ymd("2026-04-30")) {
+  # Se filtran los datos correspondientes
+  datos <- datos |>
+    filter(alias == entidad, periodo == fecha)
+  
+  # Financiamiento estable disponible, calculado según el artículo 10 del acuerdo 17-13
+  fed <- datos |>
+    filter(clase_contable == "Patrimonio") |>
+    mutate(saldo = saldo_contable * crc_por_unidad) |>
+    pull(saldo) |>
+    sum() +                               # 1.1
+    datos |> filter(
+      dias_vencimiento > 180,
+      dias_vencimiento < 365,
+      clase_contable == "Pasivo",
+      sector_contraparte != "Minorista"
+    ) |>
+    mutate(saldo = saldo_contable * crc_por_unidad) |>
+    pull(saldo) |>
+    sum() * 0.5 +                         # 1.2 ii
+    datos |>
+    filter(
+      dias_vencimiento >= 365,
+      sector_contraparte == "Minorista",
+      clase_contable == "Pasivo"
+    ) |>
+    mutate(saldo = saldo_contable * crc_por_unidad) |>
+    pull(saldo) |>
+    sum() +                               # 2.1 i y 2.2 i
+    datos |>
+    filter(
+      dias_vencimiento < 365,
+      sector_contraparte == "Minorista",
+      clase_contable == "Pasivo",
+      monto_cubierto_garantia_depositos > 0
+    ) |>
+    mutate(saldo = saldo_contable * crc_por_unidad) |>
+    pull(saldo) |>
+    sum() * 0.95 +                      # 2.1 ii
+    datos |>
+    filter(
+      dias_vencimiento < 365,
+      sector_contraparte == "Minorista",
+      clase_contable == "Pasivo",
+      monto_cubierto_garantia_depositos == 0
+    ) |>
+    mutate(saldo = saldo_contable * crc_por_unidad) |>
+    pull(saldo) |>
+    sum() * 0.9 +                      # 2.2 ii
+    datos |>
+    filter(
+      clase_contable == "Pasivo",
+      sector_contraparte != "Minorista",
+      sector_contraparte != "Banco central",
+      dias_vencimiento >= 365
+    ) |>
+    mutate(saldo = saldo_contable * crc_por_unidad) |>
+    pull(saldo) |>
+    sum() +                            # 3.2 i
+    datos |>
+    filter(
+      clase_contable == "Pasivo",
+      dias_vencimiento < 365,
+      startsWith(cuenta_contable, "21101")
+    ) |>
+    mutate(saldo = saldo_contable * crc_por_unidad) |>
+    pull(saldo) |>
+    sum() * 0.5 +                      # 3.2 ii
+    datos |>
+    filter(
+      clase_contable == "Pasivo",
+      dias_vencimiento < 365,
+      dias_vencimiento > 180,
+      startsWith(cuenta_contable, "23210")
+    ) |>
+    mutate(saldo = saldo_contable * crc_por_unidad) |>
+    pull(saldo) |>
+    sum() * 0.5                        # 3.2 iv
+  
+  # Financiamiento estable requerido, calculado según el artículo 11 del acuerdo 17-13
+  fer <- datos_observados |>
+    filter(alias == entidad, periodo == fecha) |>
+    transmute(
+      saldo_vista_inicio_30d * crc_por_unidad,
+      vencimientos_plazo_30d * crc_por_unidad,
+      principal_renovado_30d * -1 * crc_por_unidad
+    ) |>
+    sum() * 0.05 +                      # 1 iii
+    datos |>
+    filter(sector_contraparte == "Gobierno central",
+           clase_contable == "Activo") |>
+    mutate(saldo = valor_mercado * crc_por_unidad) |>
+    pull(saldo) |>
+    sum() * 0.05 +                      # 1 iii
+    datos |>
+    filter(calificacion_internacional == "AA+") |>
+    mutate(saldo = valor_mercado * crc_por_unidad) |>
+    pull(saldo) |>
+    sum() * 0.15 +                      # 1 iv
+    datos |>
+    filter(
+      clase_contable == "Activo",
+      dias_vencimiento >= 180,
+      dias_vencimiento < 365,
+      startsWith(cuenta_contable, "12303")
+    ) |>
+    mutate(saldo = saldo_contable * crc_por_unidad) |>
+    pull(saldo) |>
+    sum() * 0.5 +                      # 3.1 ii
+    datos |>
+    filter(clase_contable == "Activo",
+           startsWith(cuenta_contable, "17101")) |>
+    mutate(saldo = saldo_contable * crc_por_unidad) |>
+    pull(saldo) |>
+    sum() +                            # Terrenos contados para 3.1 iii
+    datos |>
+    filter(
+      clase_contable == "Activo",
+      dias_vencimiento >= 365,
+      cuenta_contable != 12303100,
+      cuenta_contable != 12303200
+    ) |>
+    mutate(saldo = saldo_contable * crc_por_unidad) |>
+    pull(saldo) |>
+    sum() +                           # Activos con plazo residual mayor a un año, contados para 3.1 iii
+    datos |>
+    filter(
+      dias_vencimiento < 180,
+      clase_contable == "Activo",
+      startsWith(cuenta_contable, "12303")
+    ) |>
+    mutate(saldo = saldo_contable * crc_por_unidad) |>
+    pull(saldo) |>
+    sum() * 0.15 +                    # 3.2 i
+    datos |>
+    filter(
+      dias_vencimiento >= 180,
+      dias_vencimiento < 365,
+      clase_contable == "Activo",
+      startsWith(cuenta_contable, "12303")
+    ) |>
+    mutate(saldo = saldo_contable * crc_por_unidad) |>
+    pull(saldo) |>
+    sum() * 0.5 +                     # 3.2 ii
+    datos |>
+    filter(
+      dias_vencimiento >= 365,
+      clase_contable == "Activo",
+      cuenta_contable != 12102100,
+      cuenta_contable != 12204100,
+      cuenta_contable != 12102200,
+      cuenta_contable != 12204200
+    ) |>
+    mutate(saldo = saldo_contable * crc_por_unidad) |>
+    pull(saldo) |>
+    sum() +                           # 3.2 iii
+    datos |>
+    filter(
+      dias_vencimiento < 365,
+      clase_contable == "Activo",
+      cuenta_contable != 12303100,
+      cuenta_contable != 12303200
+    ) |>
+    mutate(saldo = saldo_contable * crc_por_unidad) |>
+    pull(saldo) |>
+    sum() * 0.5 +                     # 3.3 ii, se comprobó que ninguno estaba comprometido
+    datos |>
+    filter(clase_contable == "Contingente", dias_vencimiento >= 365) |>
+    mutate(saldo = saldo_contable * crc_por_unidad) |>
+    pull(saldo) |>
+    sum() +                           # 3.3 v
+    datos |>
+    filter(
+      dias_vencimiento >= 365,
+      clase_contable == "Activo",
+      cuenta_contable %in% c(12102100, 12204100, 12102200, 12204200)
+    ) |>
+    mutate(saldo = saldo_contable * crc_por_unidad) |>
+    pull(saldo) |>
+    sum() * 0.85                      # 3.5 ii
+  
+  # Indicador de financiamiento neto estable
+  ifne <- fed / fer
+  
+  # Se devuelve el resultado
+  return(ifne)
+}
 
