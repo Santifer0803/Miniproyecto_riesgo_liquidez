@@ -57,6 +57,10 @@ datos_contables <- datos_contables |>
 datos_contables <- datos_contables |>
   left_join(datos_tc, c("periodo", "moneda"))
 
+# Se añade el tipo de cambio a los datos observados
+datos_observados <- datos_observados |> 
+  left_join(datos_tc, c("periodo", "moneda"))
+
 # Parte 2.1, 2.2, 2.3 y 2.4 del miniproyecto de riesgo de liquidez
 source(here("R", "liquidez_funciones.R"), encoding = "UTF-8")
 
