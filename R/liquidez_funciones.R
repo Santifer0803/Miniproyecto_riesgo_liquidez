@@ -1,5 +1,4 @@
 
-
 # Funciones de los puntos 2, 3, 4 y 5. No modifican los objetos de origen.
 # Cada fecha de corte y moneda se analiza por separado.
 # Fuente para las clases: CONASSIF 6-18, art. 26:
@@ -137,11 +136,9 @@ preparar_saldos <- function(datos_contables, catalogo_clasificado) {
         rubro_liquidez == "Encaje en el BCCR" ~
           "Encaje; no libre automáticamente",
         rubro_liquidez == "Inversiones restringidas" ~
-          "Restringida",
-        !is.na(fecha_liberacion) &
+          "Restringida",!is.na(fecha_liberacion) &
           as.Date(fecha_liberacion) > periodo ~
-          "Restringida hasta liberación",
-        !is.na(saldo_comprometido) &
+          "Restringida hasta liberación",!is.na(saldo_comprometido) &
           saldo_comprometido > 0 &
           (
             is.na(fecha_fin_compromiso) |
@@ -542,15 +539,28 @@ venta_inv <- function(temporal,
                       j) {
   inversiones <- saldos %>%
     filter(
-      .data$rubro_liquidez %in% c("Inversiones", "Inversiones restringidas"),
+      .data$rubro_liquidez %in%
+        c("Inversiones", "Inversiones restringidas"),
       .data$periodo == .env$periodo,
       .data$alias == .env$entidad,
       .data$moneda == .env$moneda,
-      .data$banda_num == .env$j
+      .data$banda_num >= .env$j,!.data$id_registro %in% act_liquidados$id_registro
     ) %>%
     arrange(.data$valor_cotizado_venta_urgente)
   
   remanente_inv <- 0
+  
+  # Si no quedan inversiones disponibles, se sale de la función
+  if (nrow(inversiones) == 0) {
+    return(
+      list(
+        temporal = temporal,
+        remanente_inv = remanente_inv,
+        bandas = bandas,
+        act_liquidados = act_liquidados
+      )
+    )
+  }
   
   for (i in 1:nrow(inversiones)) {
     temporal <- temporal + inversiones$valor_cotizado_venta_urgente[i]
@@ -574,6 +584,7 @@ venta_inv <- function(temporal,
     summarise(
       monto_capital = sum(monto_capital, na.rm = TRUE),
       monto_interes = sum(monto_interes, na.rm = TRUE),
+      valor_venta_vendida = sum(valor_cotizado_venta_urgente, na.rm = TRUE),
       .groups = "drop"
     )
   
@@ -587,9 +598,15 @@ venta_inv <- function(temporal,
           brecha_contrato -
             coalesce(monto_capital, 0) -
             coalesce(monto_interes, 0)
+        ),
+        venta_instr = if_else(
+          .data$banda == .env$banda,
+          venta_instr,
+          venta_instr -
+            coalesce(valor_venta_vendida, 0)
         )
       ) %>%
-      select(-monto_capital, -monto_interes)
+      select(-monto_capital, -monto_interes, -valor_venta_vendida)
     
   } else if (brecha == "brecha_ajustada") {
     bandas <- bandas %>%
@@ -601,9 +618,15 @@ venta_inv <- function(temporal,
           brecha_ajustada -
             coalesce(monto_capital, 0) -
             coalesce(monto_interes, 0)
+        ),
+        venta_instr = if_else(
+          .data$banda == .env$banda,
+          venta_instr,
+          venta_instr -
+            coalesce(valor_venta_vendida, 0)
         )
       ) %>%
-      select(-monto_capital, -monto_interes)
+      select(-monto_capital, -monto_interes, -valor_venta_vendida)
     
   }
   
@@ -653,7 +676,7 @@ cobertura_faltantes <- function(modelo, tipo_flujo, tasa_encaje = 0.15) {
   )
   
   # Dataframe con las inversiones liquidadas por bandas, después se actualiza
-  act_liquidados <- saldos[1, ]
+  act_liquidados <- saldos[0, ]
   
   # Se suman los valores de las disponibilidades utilizables por periodo, entidad
   # y moneda
@@ -699,8 +722,7 @@ cobertura_faltantes <- function(modelo, tipo_flujo, tasa_encaje = 0.15) {
   # Reservas excedentes remanentes
   bandas$reserv_exc_rem <- numeric(length = nrow(bandas))
   
-  # Valor de venta urgente de todas las inversiones e inversiones restringidas
-  # por periodo, entidad, moneda y banda
+  # Valor de venta urgente de las inversiones e inversiones restringidas
   venta_instr <- saldos %>%
     filter(rubro_liquidez %in% c("Inversiones", "Inversiones restringidas")) %>%
     group_by(periodo, alias, moneda, banda) %>%
@@ -709,9 +731,15 @@ cobertura_faltantes <- function(modelo, tipo_flujo, tasa_encaje = 0.15) {
       .groups = "drop"
     )
   
-  # Se asigna el valor de venta urgente de las inversiones a la banda respectiva
+  # Se asigna el valor de venta urgente a cada banda
   bandas <- bandas %>%
-    left_join(venta_instr, by = c("periodo", "alias", "moneda", "banda"))
+    left_join(venta_instr, by = c("periodo", "alias", "moneda", "banda")) %>%
+    group_by(periodo, alias, moneda) %>%
+    arrange(desc(match(
+      banda, c("1-8", "9-15", "16-30", "31-89", "90-180", "181+")
+    )), .by_group = TRUE) %>%
+    mutate(venta_instr = cumsum(coalesce(venta_instr, 0))) %>%
+    ungroup()
   
   # Valor de la venta de instrumentos remanente
   bandas$venta_instr_rem <- numeric(length = nrow(bandas))
@@ -894,8 +922,6 @@ cobertura_faltantes <- function(modelo, tipo_flujo, tasa_encaje = 0.15) {
     } # Fin for j
     
   } # Fin for i
-  
-  act_liquidados <- act_liquidados[-1, ]
   
   # Se quitan columnas innecesarias
   bandas <- bandas %>%
