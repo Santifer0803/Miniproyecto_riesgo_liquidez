@@ -136,11 +136,9 @@ preparar_saldos <- function(datos_contables, catalogo_clasificado) {
         rubro_liquidez == "Encaje en el BCCR" ~
           "Encaje; no libre automáticamente",
         rubro_liquidez == "Inversiones restringidas" ~
-          "Restringida",
-        !is.na(fecha_liberacion) &
+          "Restringida",!is.na(fecha_liberacion) &
           as.Date(fecha_liberacion) > periodo ~
-          "Restringida hasta liberación",
-        !is.na(saldo_comprometido) &
+          "Restringida hasta liberación",!is.na(saldo_comprometido) &
           saldo_comprometido > 0 &
           (
             is.na(fecha_fin_compromiso) |
@@ -537,6 +535,7 @@ venta_inv <- function(temporal,
                       entidad,
                       moneda,
                       banda,
+                      brecha,
                       j) {
   inversiones <- saldos %>%
     filter(
@@ -575,18 +574,35 @@ venta_inv <- function(temporal,
       .groups = "drop"
     )
   
-  bandas <- bandas %>%
-    left_join(inv_resumen, by = c("periodo", "alias", "moneda", "banda")) %>%
-    mutate(
-      brecha_contrato = if_else(
-        .data$banda == .env$banda,
-        brecha_contrato,
-        brecha_contrato -
-          coalesce(monto_capital, 0) -
-          coalesce(monto_interes, 0)
-      )
-    ) %>%
-    select(-monto_capital, -monto_interes)
+  if (brecha == "brecha_contrato") {
+    bandas <- bandas %>%
+      left_join(inv_resumen, by = c("periodo", "alias", "moneda", "banda")) %>%
+      mutate(
+        brecha_contrato = if_else(
+          .data$banda == .env$banda,
+          brecha_contrato,
+          brecha_contrato -
+            coalesce(monto_capital, 0) -
+            coalesce(monto_interes, 0)
+        )
+      ) %>%
+      select(-monto_capital, -monto_interes)
+    
+  } else if (brecha == "brecha_ajustada") {
+    bandas <- bandas %>%
+      left_join(inv_resumen, by = c("periodo", "alias", "moneda", "banda")) %>%
+      mutate(
+        brecha_ajustada = if_else(
+          .data$banda == .env$banda,
+          brecha_ajustada,
+          brecha_ajustada -
+            coalesce(monto_capital, 0) -
+            coalesce(monto_interes, 0)
+        )
+      ) %>%
+      select(-monto_capital, -monto_interes)
+    
+  }
   
   act_liquidados <- rbind(act_liquidados, inversiones_vend)
   
@@ -605,7 +621,18 @@ tasa_encaje <- 0.15
 
 # Función que añade las columnas de recursos utilizados para cubrir faltantes de
 # liquidez y de recursos remanentes al dataframe de bandas
-cobertura_faltantes <- function(modelo) {
+cobertura_faltantes <- function(modelo, tipo_flujo) {
+  # Se define el tipo de flujo a analizar
+  if (tipo_flujo == "contrato") {
+    brecha <- "brecha_contrato"
+    eliminar <- c("brecha_ajustada", "acumulada_ajustada")
+    
+  } else if (tipo_flujo == "ajustado") {
+    brecha <- "brecha_ajustada"
+    eliminar <- c("brecha_contrato", "acumulada_contrato")
+    
+  }
+  
   # Se selecciona el dataframe a modificar
   bandas <- modelo$bandas
   
@@ -723,8 +750,8 @@ cobertura_faltantes <- function(modelo) {
       
       # Si la brecha es negativa se usan las disponibilidades utilizables, sino
       # se actualizan los recursos remanentes
-      if (bandas$brecha_contrato[filas[j]] < 0) {
-        temporal <- bandas$brecha_contrato[filas[j]] + bandas$saldo_caja[filas[j]]
+      if (bandas[[brecha]][filas[j]] < 0) {
+        temporal <- bandas[[brecha]][filas[j]] + bandas$saldo_caja[filas[j]]
         
       } else{
         if (j != 6) {
@@ -793,6 +820,7 @@ cobertura_faltantes <- function(modelo) {
           bandas$alias[filas[j]],
           bandas$moneda[filas[j]],
           bandas$banda[filas[j]],
+          brecha,
           j
         )
         
@@ -870,6 +898,18 @@ cobertura_faltantes <- function(modelo) {
   
   act_liquidados <- act_liquidados[-1, ]
   
+  # Se quitan columnas innecesarias
+  bandas <- bandas %>%
+    select(-c(
+      entradas_contrato,
+      salidas_contrato,
+      entradas_ajustadas,
+      salidas_ajustadas,
+    ))
+  
+  bandas <- bandas %>%
+    select(-all_of(eliminar))
+  
   return(list(bandas = bandas, act_liquidados = act_liquidados))
   
 }
@@ -931,7 +971,7 @@ liquidez_monedas <- function(modelo) {
     ungroup()
   
   # Se analizan los casos, se calcula la brecha convertida usando el tipo de
-  # cambio (en caso de que corresponda), y se le suma a que es negativa
+  # cambio (en caso de que corresponda) y se le suma a la brecha que es negativa
   bandas <- bandas %>%
     group_by(periodo, alias, banda) %>%
     mutate(
@@ -964,6 +1004,39 @@ liquidez_monedas <- function(modelo) {
     ) %>%
     ungroup()
   
+  # Se hace lo mismo con la brecha ajustada
+  bandas <- bandas %>%
+    group_by(periodo, alias, banda) %>%
+    mutate(
+      brecha_ajustada_tc = case_when(
+        # MN positiva y ME negativa:
+        moneda == "MN" &
+          brecha_ajustada > 0 &
+          any(moneda == "ME" & brecha_ajustada < 0) ~
+          (brecha_ajustada / tipo_cambio) * (1 - costo_tc),
+        
+        # ME positiva y MN negativa:
+        moneda == "ME" &
+          brecha_ajustada > 0 &
+          any(moneda == "MN" & brecha_ajustada < 0) ~
+          (brecha_ajustada * tipo_cambio) * (1 - costo_tc),
+        
+        # Los demás casos no requieren conversión:
+        TRUE ~ NA
+      ),
+      
+      # Brecha negativa más la brecha convertida
+      brecha_ajustada_residual = case_when(
+        brecha_ajustada < 0 &
+          any(!is.na(brecha_ajustada_tc)) ~
+          brecha_ajustada +
+          sum(brecha_ajustada_tc, na.rm = TRUE),
+        
+        TRUE ~ NA_real_
+      )
+    ) %>%
+    ungroup()
+  
   # Se quitan columnas innecesarias
   bandas <- bandas %>%
     select(-c(
@@ -983,7 +1056,10 @@ liquidez_monedas <- function(modelo) {
 ################## Punto 6 ##################
 
 # Función del cálculo del ICL
-icl <- function(datos, entidad = "B", fecha = ymd("2026-04-30"), moneda_var = "MN") {
+icl <- function(datos,
+                entidad = "B",
+                fecha = ymd("2026-04-30"),
+                moneda_var = "MN") {
   # Se filtran los datos correspondientes
   datos <- datos |>
     filter(alias == entidad, periodo == fecha, moneda == moneda_var)
@@ -992,7 +1068,7 @@ icl <- function(datos, entidad = "B", fecha = ymd("2026-04-30"), moneda_var = "M
   activos_liquidez <- 0
   
   # Condicional para alterar la moneda
-  if(moneda_var == "MN"){
+  if (moneda_var == "MN") {
     activos_liquidez <- datos |>
       filter(cuenta_contable == 11101100) |>
       pull(saldo_contable) +               # A i
@@ -1312,18 +1388,20 @@ var_liquidez <- function(datos, factor_liq = 1) {
     slice_max(order_by = coste_liq,
               n = 10,
               with_ties = FALSE) |>
-    ungroup() |> 
-    select(c(
-      id_registro,
-      periodo,
-      alias,
-      nombre_cuenta_catalogo,
-      disponibilidad,
-      moneda,
-      dias_vencimiento,
-      banda,
-      coste_liq
-    ))
+    ungroup() |>
+    select(
+      c(
+        id_registro,
+        periodo,
+        alias,
+        nombre_cuenta_catalogo,
+        disponibilidad,
+        moneda,
+        dias_vencimiento,
+        banda,
+        coste_liq
+      )
+    )
   
   # Lista con las 2 tablas que se ocupan
   res <- list(tabla_var, coste_liquidacion)
