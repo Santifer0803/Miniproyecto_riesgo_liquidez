@@ -1,3 +1,4 @@
+
 # Librerías necesarias
 pacman::p_load(janitor, knitr, plotly, readxl, shiny, tidyverse, here, DT)
 
@@ -60,43 +61,29 @@ datos_contables <- datos_contables |>
 datos_observados <- datos_observados |>
   left_join(datos_tc, c("periodo", "moneda"))
 
-# Parte 2.1, 2.2, 2.3 y 2.4 del miniproyecto de riesgo de liquidez
+# Se cargan las funciones para hacer las partes 2.1, 2.2, 2.3 y 2.4 y 2.5
 source(here("R", "liquidez_funciones.R"), encoding = "UTF-8")
 
+# Modelo inicial de las partes 2 y 3
 modelo <- crear_modelo_liquidez(datos_contables,
                                 datos_contrato,
                                 datos_observados,
                                 datos_catalogo)
 
-# Las líneas contingentes se conservan con sus saldos originales en modelo.
-# Para el punto 4 se usa una copia donde su importe no aporta recursos de cobertura.
-# De esta manera no se modifican las funciones del módulo 4 ni las posiciones originales.
-modelo_para_cobertura <- modelo
-modelo_para_cobertura$saldos <- modelo_para_cobertura$saldos |>
-  dplyr::mutate(
-    saldo_contable = dplyr::if_else(
-      clase_contable == "Contingente" |
-        rubro_liquidez == "Líneas concedidas no utilizadas",
-      0,
-      saldo_contable
-    )
-  )
+# Se ejecuta la función para las coberturas de faltantes de liquidez
+coberturas <- cobertura_faltantes(modelo)
 
-coberturas <- cobertura_faltantes(modelo_para_cobertura)
-
-# Las columnas de líneas del módulo 4 son meramente auxiliares.
-# No deben mostrar recursos ni remanentes, pues no participan en la cobertura.
-coberturas$bandas <- coberturas$bandas |>
-  dplyr::mutate(
-    lineas_cred = 0,
-    lineas_cred_rem = 0
-  )
-
-# Se agrega el detalle de las bandas al modelo
-modelo$bandas <- coberturas$bandas
+# Se agrega la nueva tabla con las coberturas al modelo
+modelo$bandas_cobertura <- coberturas$bandas
 
 # Activos liquidados por entidad
 act_liquidados <- coberturas$act_liquidados
+
+# Base sujeta a encaje, requerimiento, reservas mantenidas y exceso o faltante
+encaje_reservs <- encaje_reserv(modelo$saldos)
+
+# Análisis del posible apoyo entre monedas
+bandas_tc <- liquidez_monedas(modelo)
 
 # Valor en riesgo de cada entidad
 var_entidad <- var_liquidez(act_liquidados)
@@ -537,7 +524,7 @@ server <- function(input, output, session) {
                          )) +
       ggplot2::geom_col(show.legend = FALSE) +
       ggplot2::coord_flip() +
-      ggplot2::facet_wrap(~ clase_contable, scales = "free_y") +
+      ggplot2::facet_wrap( ~ clase_contable, scales = "free_y") +
       ggplot2::labs(x = "Rubro", y = "Millones de la moneda seleccionada") +
       ggplot2::theme_minimal()
     plotly::ggplotly(p, tooltip = "text")
@@ -704,12 +691,8 @@ server <- function(input, output, session) {
       name = "Medida",
       marker = list(color = "#247f79")
     ) |>
-      plotly::layout(
-        xaxis = list(
-          title = "Medida"
-        ),
-        yaxis = list(title = "Unidades")
-      )
+      plotly::layout(xaxis = list(title = "Medida"),
+                     yaxis = list(title = "Unidades"))
   })
   
   # Función para hacer un archivo excel/csv de unos datos
