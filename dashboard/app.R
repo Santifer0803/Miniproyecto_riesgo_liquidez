@@ -79,7 +79,7 @@ modelo$bandas_cobertura <- coberturas$bandas
 act_liquidados <- coberturas$act_liquidados
 
 # Se agrega el coste por liquidez
-act_liquidados <- act_liquidados |> 
+act_liquidados <- act_liquidados |>
   mutate(coste_liq = (valor_mercado - valor_cotizado_venta_urgente) * crc_por_unidad)
 
 # Base sujeta a encaje, requerimiento, reservas mantenidas y exceso o faltante
@@ -122,7 +122,10 @@ tabla_interactiva <- function(datos, pagina = 12) {
 
 # Aplica los filtros del dataframe a la tabla a descargar
 filtrar_como_dt <- function(datos, filas) {
-  if (is.null(filas)) datos else datos[filas, , drop = FALSE]
+  if (is.null(filas))
+    datos
+  else
+    datos[filas, , drop = FALSE]
 }
 
 # Diseño de la aplicación
@@ -391,13 +394,29 @@ ui <- fluidPage(
             tags$li(
               "Tanto el VaR como el coste por liquidez fueron calculados en colones, usando el tipo de cambio correspondiente en el caso de los activos presentados en moneda extranjera."
             ),
-            tags$li("El coste de liquidación fue calculado como la diferencia entre el valor de mercado del activo y el valor cotizado de venta urgente, debido a la falta de datos.")
+            tags$li(
+              "El coste de liquidación fue calculado como la diferencia entre el valor de mercado del activo y el valor cotizado de venta urgente, debido a la falta de datos."
+            )
           ),
           
           # Tabla de detalle por cuenta contable y banda
           br(),
           h4("Detalle de los 10 activos con mayor coste por liquidez"),
           DTOutput("tabla_coste_liq")
+        ),
+        
+        # Pestaña de escenarios alternativos y comparación de riesgos
+        tabPanel(
+          "Escenarios y comparación de riesgos",
+          br(),
+          
+          # Texto explicativo inicial
+          p(
+            "El gráfico compara el Indicador de Financiamiento Neto Estable para cada entidad y periodo, permitiendo ver su evolución a lo largo del tiempo."
+          ),
+          
+          # Gráfico de activos y pasivos por banda
+          plotlyOutput("grafico_comp_ifne", height = "340px"),
         )
       )
     )
@@ -564,7 +583,7 @@ server <- function(input, output, session) {
                          )) +
       ggplot2::geom_col(show.legend = FALSE) +
       ggplot2::coord_flip() +
-      ggplot2::facet_wrap( ~ clase_contable, scales = "free_y") +
+      ggplot2::facet_wrap(~ clase_contable, scales = "free_y") +
       ggplot2::labs(x = "Rubro", y = "Millones de la moneda seleccionada") +
       ggplot2::theme_minimal()
     plotly::ggplotly(p, tooltip = "text")
@@ -737,7 +756,7 @@ server <- function(input, output, session) {
   
   # Datos del VaR y LVaR
   df_lvar <- reactive({
-    var_entidad[[1]] |> 
+    var_entidad[[1]] |>
       filter(alias == input$entidad)
   })
   
@@ -762,9 +781,27 @@ server <- function(input, output, session) {
         xaxis = list(
           title = "Medida",
           categoryorder = "array",
-          categoryarray = c("var_95", "var_99", "coste_liq", "var_liq_95", "var_liq_99"),
-          tickvals = c("var_95", "var_99", "coste_liq", "var_liq_95", "var_liq_99"),
-          ticktext = c("VaR 95%", "VaR 99%", "Coste por liquidez", "LVaR 95%", "LVaR 99%")
+          categoryarray = c(
+            "var_95",
+            "var_99",
+            "coste_liq",
+            "var_liq_95",
+            "var_liq_99"
+          ),
+          tickvals = c(
+            "var_95",
+            "var_99",
+            "coste_liq",
+            "var_liq_95",
+            "var_liq_99"
+          ),
+          ticktext = c(
+            "VaR 95%",
+            "VaR 99%",
+            "Coste por liquidez",
+            "LVaR 95%",
+            "LVaR 99%"
+          )
         ),
         yaxis = list(title = "Millones de colones")
       )
@@ -777,6 +814,211 @@ server <- function(input, output, session) {
   # Se hace tabla de coste de liquidez interactiva
   output$tabla_coste_liq <- DT::renderDT({
     tabla_interactiva(tabla_liquidez(), 10)
+  })
+  
+  # Datos para comparar el ifne entre entidades
+  df_ifne_comp <- reactive({
+    data.frame(
+      periodo = c(
+        ymd("2026-04-30"),
+        ymd("2026-05-31"),
+        ymd("2026-06-30"),
+        ymd("2026-07-31"),
+        ymd("2026-08-31"),
+        ymd("2026-09-30")
+      ),
+      ifne_a = c(
+        ifne(
+          modelo[[2]],
+          entidad = "A",
+          fecha = ymd("2026-04-30")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "A",
+          fecha = ymd("2026-05-31")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "A",
+          fecha = ymd("2026-06-30")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "A",
+          fecha = ymd("2026-07-31")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "A",
+          fecha = ymd("2026-08-31")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "A",
+          fecha = ymd("2026-09-30")
+        )
+      ),
+      ifne_b = c(
+        ifne(
+          modelo[[2]],
+          entidad = "B",
+          fecha = ymd("2026-04-30")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "B",
+          fecha = ymd("2026-05-31")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "B",
+          fecha = ymd("2026-06-30")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "B",
+          fecha = ymd("2026-07-31")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "B",
+          fecha = ymd("2026-08-31")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "B",
+          fecha = ymd("2026-09-30")
+        )
+      ),
+      ifne_c = c(
+        ifne(
+          modelo[[2]],
+          entidad = "C",
+          fecha = ymd("2026-04-30")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "C",
+          fecha = ymd("2026-05-31")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "C",
+          fecha = ymd("2026-06-30")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "C",
+          fecha = ymd("2026-07-31")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "C",
+          fecha = ymd("2026-08-31")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "C",
+          fecha = ymd("2026-09-30")
+        )
+      ),
+      ifne_d = c(
+        ifne(
+          modelo[[2]],
+          entidad = "D",
+          fecha = ymd("2026-04-30")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "D",
+          fecha = ymd("2026-05-31")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "D",
+          fecha = ymd("2026-06-30")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "D",
+          fecha = ymd("2026-07-31")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "D",
+          fecha = ymd("2026-08-31")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "D",
+          fecha = ymd("2026-09-30")
+        )
+      ),
+      ifne_e = c(
+        ifne(
+          modelo[[2]],
+          entidad = "E",
+          fecha = ymd("2026-04-30")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "E",
+          fecha = ymd("2026-05-31")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "E",
+          fecha = ymd("2026-06-30")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "E",
+          fecha = ymd("2026-07-31")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "E",
+          fecha = ymd("2026-08-31")
+        ),
+        ifne(
+          modelo[[2]],
+          entidad = "E",
+          fecha = ymd("2026-09-30")
+        )
+      )
+    )
+  })
+  
+  # Gráfico de comparacion del ifne entre entidades
+  output$grafico_comp_ifne <- renderPlotly({
+    # Se filtra el gráfico correspondiente
+    d <- df_ifne_comp() |>
+      pivot_longer(
+        cols = c(ifne_a, ifne_b, ifne_c, ifne_d, ifne_e),
+        names_to = "serie",
+        values_to = "valor"
+      ) |>
+      mutate(serie = factor(
+        serie,
+        levels = c("ifne_a", "ifne_b", "ifne_c", "ifne_d", "ifne_e"),
+        labels = c("A", "B", "C", "D", "E")
+      ))
+    
+    # Gráfico final
+    plotly::plot_ly(
+      data = d,
+      x = ~ periodo,
+      y = ~ valor,
+      color = ~ serie,
+      type = "scatter",
+      mode = "lines+markers"
+    ) |>
+      plotly::layout(
+        xaxis = list(title = "Fecha"),
+        yaxis = list(title = "IFNE"),
+        legend = list(title = list(text = "Medida"))
+      )
   })
   
   # Función para hacer un archivo excel/csv de unos datos
