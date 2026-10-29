@@ -75,13 +75,6 @@ coberturas <- cobertura_faltantes(modelo)
 # Se agrega la nueva tabla con las coberturas al modelo
 modelo$bandas_cobertura <- coberturas$bandas
 
-# Se agrega el coste por liquidez a las bandas
-modelo$bandas_cobertura <- act_liquidados |>
-  group_by(periodo, alias, moneda, banda) |>
-  summarise(salidas_liquidez = sum(coste_liq), .groups = "drop_last") |>
-  right_join(modelo$bandas_cobertura,
-             by = c("periodo", "alias", "moneda", "banda"))
-
 # Activos liquidados por entidad
 act_liquidados <- coberturas$act_liquidados
 
@@ -89,14 +82,18 @@ act_liquidados <- coberturas$act_liquidados
 act_liquidados <- act_liquidados |>
   mutate(coste_liq = valor_mercado - valor_cotizado_venta_urgente)
 
+# Se agrega el coste por liquidez a las bandas
+modelo$bandas_cobertura <- act_liquidados |>
+  group_by(periodo, alias, moneda, banda) |>
+  summarise(salidas_liquidez = sum(coste_liq), .groups = "drop_last") |>
+  right_join(modelo$bandas_cobertura,
+             by = c("periodo", "alias", "moneda", "banda"))
+
 # Base sujeta a encaje, requerimiento, reservas mantenidas y exceso o faltante
 encaje_reservs <- encaje_reserv(modelo$saldos)
 
 # Análisis del posible apoyo entre monedas
 bandas_tc <- liquidez_monedas(modelo)
-
-# Valor en riesgo de cada entidad
-var_entidad <- var_liquidez(act_liquidados)
 
 # Formato de los montos para tablas
 formato_monto <- function(x) {
@@ -177,6 +174,9 @@ ui <- fluidPage(
         "Vista de flujos",
         choices = c("Contractual", "Ajustado por comportamiento")
       ),
+      
+      # Formato para la selección de factor para coste de liquidez
+      sliderInput("factor", "Factor de liquidez", min = 0.5, max = 2, value = 1, step = 0.5),
       
       # Texto explicativo adicional
       helpText("MN: colones; ME: dólares. Montos sin conversión cruzada."),
@@ -355,7 +355,7 @@ ui <- fluidPage(
           
           # Texto explicativo inicial
           p(
-            "El gráfico muestra la comparación del Indicador de cobertura de liquidez (ICL) y el Indicador de financiamiento estable (IFNE). Para cumplir con la normativa, ambos deben ser mayores a 1."
+            "El gráfico muestra la comparación del Indicador de cobertura de liquidez (ICL) y el Indicador de financiamiento neto estable (IFNE). Para cumplir con la normativa, ambos deben ser mayores a 1."
           ),
           
           # Gráfico de las métricas de liquidez
@@ -761,9 +761,14 @@ server <- function(input, output, session) {
                      yaxis = list(title = "Unidades"))
   })
   
+  # Datos del LVaR por entidad
+  var_entidad <- reactive({
+    var_liquidez(act_liquidados, factor_liq = input$factor)
+  })
+  
   # Datos del VaR y LVaR
   df_lvar <- reactive({
-    var_entidad[[1]] |>
+    var_entidad()[[1]] |>
       filter(alias == input$entidad)
   })
   
@@ -815,8 +820,8 @@ server <- function(input, output, session) {
   })
   
   # Tabla con los 10 registros con mayor coste de liquidez
-  tabla_liquidez <- reactive(var_entidad[[2]] |>
-                               filter(alias == input$entidad))
+  tabla_liquidez <- reactive({var_entidad()[[2]] |>
+                               filter(alias == input$entidad)})
   
   # Se hace tabla de coste de liquidez interactiva
   output$tabla_coste_liq <- DT::renderDT({
