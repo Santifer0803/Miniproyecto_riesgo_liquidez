@@ -1,4 +1,5 @@
 
+
 # Funciones de los puntos 2, 3, 4 y 5. No modifican los objetos de origen.
 # Cada fecha de corte y moneda se analiza por separado.
 # Fuente para las clases: CONASSIF 6-18, art. 26:
@@ -136,9 +137,11 @@ preparar_saldos <- function(datos_contables, catalogo_clasificado) {
         rubro_liquidez == "Encaje en el BCCR" ~
           "Encaje; no libre automáticamente",
         rubro_liquidez == "Inversiones restringidas" ~
-          "Restringida",!is.na(fecha_liberacion) &
+          "Restringida",
+        !is.na(fecha_liberacion) &
           as.Date(fecha_liberacion) > periodo ~
-          "Restringida hasta liberación",!is.na(saldo_comprometido) &
+          "Restringida hasta liberación",
+        !is.na(saldo_comprometido) &
           saldo_comprometido > 0 &
           (
             is.na(fecha_fin_compromiso) |
@@ -616,12 +619,10 @@ venta_inv <- function(temporal,
   )
 }
 
-# Supuesto inicial de encaje
-tasa_encaje <- 0.15
-
 # Función que añade las columnas de recursos utilizados para cubrir faltantes de
 # liquidez y de recursos remanentes al dataframe de bandas
-cobertura_faltantes <- function(modelo, tipo_flujo) {
+cobertura_faltantes <- function(modelo, tipo_flujo, tasa_encaje = 0.15) {
+  # Supuesto inicial de encaje
   # Se define el tipo de flujo a analizar
   if (tipo_flujo == "contrato") {
     brecha <- "brecha_contrato"
@@ -633,10 +634,8 @@ cobertura_faltantes <- function(modelo, tipo_flujo) {
     
   }
   
-  # Se selecciona el dataframe a modificar
+  # Se seleccionan los dataframes a usar
   bandas <- modelo$bandas
-  
-  # Dataframe de saldos
   saldos <- modelo$saldos
   
   # Se le agrega la banda respectiva a cada fila
@@ -916,7 +915,7 @@ cobertura_faltantes <- function(modelo, tipo_flujo) {
 
 ################## Punto 5 ##################
 
-encaje_reserv <- function(saldos) {
+encaje_reserv <- function(saldos, tasa_encaje = 0.15) {
   # Base sujeta a encaje por periodo, entidad y moneda
   base_encaje <- saldos %>%
     filter(rubro_liquidez %in% c("Depósitos a la vista", "Depósitos a plazo")) %>%
@@ -1050,6 +1049,10 @@ liquidez_monedas <- function(modelo) {
   bandas <- bandas %>%
     arrange(periodo, alias, banda, moneda)
   
+  # Se quitan columnas innecesarias
+  bandas <- bandas %>%
+    select(-c(acumulada_contrato, acumulada_ajustada))
+  
   return(bandas)
 }
 
@@ -1059,7 +1062,8 @@ liquidez_monedas <- function(modelo) {
 icl <- function(datos,
                 entidad = "B",
                 fecha = ymd("2026-04-30"),
-                moneda_var = "MN") {
+                moneda_var = "MN",
+                datos_observados) {
   # Se filtran los datos correspondientes
   datos <- datos |>
     filter(alias == entidad, periodo == fecha, moneda == moneda_var)
@@ -1162,7 +1166,8 @@ icl <- function(datos,
 # Función del cálculo del IFNE
 ifne <- function(datos,
                  entidad = "B",
-                 fecha = ymd("2026-04-30")) {
+                 fecha = ymd("2026-04-30"),
+                 datos_observados) {
   # Se filtran los datos correspondientes
   datos <- datos |>
     filter(alias == entidad, periodo == fecha)
@@ -1353,7 +1358,7 @@ ifne <- function(datos,
 ################## Punto 7 ##################
 
 # Función que calcula el VaR y LVaR para cada entidad
-var_liquidez <- function(datos, factor_liq = 1) {
+var_liquidez <- function(datos, factor_liq = 1, datos_contables) {
   # Se calcula el VaR para cada entidad
   tabla_var <- datos_contables |>
     filter(grepl("Instrumentos financieros", nombre_cuenta_catalogo)) |>
