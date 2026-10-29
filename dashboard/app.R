@@ -78,6 +78,10 @@ modelo$bandas_cobertura <- coberturas$bandas
 # Activos liquidados por entidad
 act_liquidados <- coberturas$act_liquidados
 
+# Se agrega el coste por liquidez
+act_liquidados <- act_liquidados |> 
+  mutate(coste_liq = (valor_mercado - valor_cotizado_venta_urgente) * crc_por_unidad)
+
 # Base sujeta a encaje, requerimiento, reservas mantenidas y exceso o faltante
 encaje_reservs <- encaje_reserv(modelo$saldos)
 
