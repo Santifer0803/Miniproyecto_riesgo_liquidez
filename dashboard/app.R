@@ -294,7 +294,7 @@ ui <- fluidPage(
       
       # Botones de descarga para las tablas
       hr(),
-      downloadButton("descargar_bandas", "Descargar brechas (CSV)"),
+      downloadButton("descargar_bandas", "Descargar flujos por banda (CSV)"),
       br(),
       br(),
       downloadButton("descargar_rubros", "Descargar rubros (CSV)"),
@@ -312,7 +312,7 @@ ui <- fluidPage(
       downloadButton("descargar_encaje", "Descargar encaje de reservas (CSV)"),
       br(),
       br(),
-      downloadButton("descargar_bandas", "Descargar bandas (CSV)"),
+      downloadButton("descargar_bandas_tc", "Descargar bandas (CSV)"),
       br(),
       br(),
       downloadButton("descargar_liquidar", "Descargar liquidez (CSV)")
@@ -1770,8 +1770,8 @@ server <- function(input, output, session) {
     }
   )
   
-  # Descarga la tabla de bandas
-  output$descargar_bandas <- downloadHandler(
+  # Descarga la tabla de bandas con tipo de cambio
+  output$descargar_bandas_tc <- downloadHandler(
     # Nombre del archivo
     filename = function()
       paste0(
