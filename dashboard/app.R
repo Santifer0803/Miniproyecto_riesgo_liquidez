@@ -105,13 +105,6 @@ recalcular_resultados <- function(modelo) {
     right_join(modelo$cobertura_ajustado,
                by = c("periodo", "alias", "moneda", "banda"))
   
-  # Se convierten los montos a millones
-  modelo$cobertura_contrato[, 5:ncol(modelo$cobertura_contrato)] <-
-    round(modelo$cobertura_contrato[, 5:ncol(modelo$cobertura_contrato)] / 1000000, 4)
-  
-  modelo$cobertura_ajustado[, 5:ncol(modelo$cobertura_ajustado)] <-
-    round(modelo$cobertura_ajustado[, 5:ncol(modelo$cobertura_ajustado)] / 1000000, 4)
-  
   # Ordenar la tabla contractual
   modelo$cobertura_contrato <- modelo$cobertura_contrato |>
     dplyr::arrange(
@@ -142,13 +135,7 @@ recalcular_resultados <- function(modelo) {
   
   # Análisis del posible apoyo entre monedas
   bandas_tc <- liquidez_monedas(modelo)
-  
-  # Se convierten los montos a millones
-  encaje_reservs[, 4:ncol(encaje_reservs)] <- round(encaje_reservs[, 4:ncol(encaje_reservs)] / 1000000, 4)
-  
   bandas_tc <- bandas_tc |> dplyr::relocate(tipo_cambio, .before = 5)
-  
-  bandas_tc[, 6:ncol(bandas_tc)] <- round(bandas_tc[, 6:ncol(bandas_tc)] / 1000000, 4)
   
   list(
     modelo = modelo,
@@ -183,6 +170,14 @@ formato_monto <- function(x) {
 
 # Función para crear tablas interactivas
 tabla_interactiva <- function(datos, pagina = 12) {
+  # Máximo de dos decimales
+  datos <- datos |>
+    dplyr::mutate(dplyr::across(
+      where(~ is.double(.x) && !inherits(.x, c("Date", "POSIXct", "POSIXt", "difftime"))),
+      ~ round(.x, 2)
+    ))
+  
+  # Formato de tabla interactiva
   DT::datatable(
     datos,
     rownames = FALSE,
@@ -298,6 +293,75 @@ ui <- fluidPage(
         textOutput("tasas_base_seleccion")
       ),
       
+      # Filtros de Cobertura de faltantes
+      conditionalPanel(
+        condition = "input.pestanas_principales == 'cobertura'",
+        h4("Filtros de cobertura"),
+        selectInput(
+          "cobertura_entidad",
+          "Entidad",
+          choices = c("Todas", sort(unique(modelo$saldos$alias))),
+          selected = "B",
+          multiple = TRUE
+        ),
+        selectInput(
+          "cobertura_corte",
+          "Fecha de corte",
+          choices = c("Todas", format(sort(unique(modelo$saldos$periodo)), "%Y-%m-%d")),
+          selected = "2026-04-30",
+          multiple = TRUE
+        ),
+        selectInput(
+          "cobertura_moneda",
+          "Moneda",
+          choices = c("Todas", "MN", "ME"),
+          selected = "Todas",
+          multiple = TRUE
+        ),
+        selectInput(
+          "tipo_flujo",
+          "Tipo de flujo",
+          choices = c("Contractual", "Ajustado por comportamiento"),
+          selected = "Contractual",
+          multiple = FALSE
+        )
+      ),
+      
+      # Filtros de encaje y liquidez por moneda
+      conditionalPanel(
+        condition = "input.pestanas_principales == 'encaje_moneda'",
+        h4("Filtros de encaje y liquidez"),
+        selectInput(
+          "encaje_entidad",
+          "Entidad",
+          choices = c("Todas", sort(unique(modelo$saldos$alias))),
+          selected = "B",
+          multiple = TRUE
+        ),
+        selectInput(
+          "encaje_corte",
+          "Fecha de corte",
+          choices = c("Todas", format(sort(unique(modelo$saldos$periodo)), "%Y-%m-%d")),
+          selected = "2026-04-30",
+          multiple = TRUE
+        ),
+        selectInput(
+          "encaje_moneda",
+          "Moneda",
+          choices = c("Todas", "MN", "ME"),
+          selected = "Todas",
+          multiple = TRUE
+        ),
+        sliderInput(
+          "tasa_encaje_input",
+          "Tasa de encaje",
+          min = 0.05,
+          max = 0.25,
+          value = 0.15,
+          step = 0.05,
+          ticks = TRUE
+        )
+      ),
 
       helpText("MN: colones; ME: dólares."),
       helpText(
@@ -315,16 +379,13 @@ ui <- fluidPage(
       downloadButton("descargar_saldos", "Descargar saldos (CSV)"),
       br(),
       br(),
-      downloadButton("descargar_maestra", "Descargar tabla maestra (CSV)"),
-      br(),
-      br(),
       downloadButton("descargar_cobertura", "Descargar cobertura (CSV)"),
       br(),
       br(),
       downloadButton("descargar_encaje", "Descargar encaje de reservas (CSV)"),
       br(),
       br(),
-      downloadButton("descargar_bandas_tc", "Descargar bandas (CSV)"),
+      downloadButton("descargar_bandas_tc", "Descargar bandas tipo de cambio (CSV)"),
       br(),
       br(),
       downloadButton("descargar_liquidar", "Descargar liquidez (CSV)")
@@ -419,134 +480,19 @@ ui <- fluidPage(
           DTOutput("tabla_flujos_detallados")
         ),
         
-        # Pestaña de tabla maestra
-        tabPanel(
-          "Tabla maestra",
-          br(),
-          
-          # Texto explicativo inicial
-          p(
-            "Una fila por entidad, corte, moneda y cuenta contable. El saldo no se repite por banda; las columnas de flujos tienen sufijos d1_8, d9_15, d16_30, d31_89, d90_180 y d181_."
-          ),
-          
-          # Tabla maestra con la información completa
-          DTOutput("tabla_maestra")
-        ),
-        
-        # Pestaña de metodología y controles
-        tabPanel(
-          "Metodología y controles",
-          br(),
-          
-          # Tabla del catálogo clasificado por tratamiento general y rubro de liquidez
-          h4("Catálogo clasificado"),
-          DTOutput("tabla_catalogo"),
-          
-          # Tabla con las verificaciones de integridad requeridas
-          h4("Verificaciones de integridad"),
-          DTOutput("tabla_controles"),
-          
-          # Texto explicativo con las reglas de interpretación del modelo
-          h4("Reglas de interpretación"),
-          tags$ul(
-            tags$li(
-              "Clases contables: activo (1), pasivo (2), patrimonio (3), contingente (6)."
-            ),
-            tags$li("Bandas: 1–8, 9–15, 16–30, 31–89, 90–180 y 181+ días."),
-            tags$li(
-              "Pasivos vencidos: primera banda; cobros vencidos: identificados aparte, no reconocidos como cobrados."
-            ),
-            tags$li(
-              "El escenario ajustado usa tasas históricas del corte solamente hasta 30 días."
-            ),
-            tags$li(
-              "Líneas concedidas: solo registro contingente, sin salidas ni cobertura; líneas recibidas: recurso potencial, no entrada contractual."
-            ),
-            tags$li(
-              "Cuentas sin fecha, patrimonio, caja y encaje: no se inventan flujos contractuales."
-            ),
-            tags$li(
-              "No se mezclan fechas de corte, monedas ni saldos contables con movimientos de efectivo."
-            )
-          ),
-          p(
-            "Fuente de las clases: CONASSIF 6-18, artículo 26. Los tratamientos de liquidez son supuestos académicos y no equivalen al ICL/IFNE."
-          ),
-          
-          # Normativa de la SUGEF
-          h4("Anexos consultados"),
-          tags$a(href = "https://www.sugef.fi.cr/normativa/NormativaTransversal.aspx", target = "_blank", "Reglamento y anexos SUGEF")
-        ),
-        
         # Pestaña de cobertura de faltantes
         tabPanel(
           "Cobertura de faltantes",
           value = "cobertura",
           br(),
           
-          h4("Filtros de cobertura"),
-          
-          
-          fluidRow(
-            column(
-              3,
-              selectInput(
-                "cobertura_entidad",
-                "Entidad",
-                choices = c("Todas", sort(unique(
-                  modelo$saldos$alias
-                ))),
-                selected = "B",
-                multiple = TRUE
-              )
-            ),
-            
-            column(
-              3,
-              selectInput(
-                "cobertura_corte",
-                "Fecha de corte",
-                choices = c("Todas", format(sort(
-                  unique(modelo$saldos$periodo)
-                ), "%Y-%m-%d")),
-                selected = "2026-04-30",
-                multiple = TRUE
-              )
-            ),
-            
-            column(
-              3,
-              selectInput(
-                "cobertura_moneda",
-                "Moneda",
-                choices = c("Todas", "MN", "ME"),
-                selected = "Todas",
-                multiple = TRUE
-              )
-            ),
-            
-            column(
-              3,
-              selectInput(
-                "tipo_flujo",
-                "Tipo de flujo",
-                choices = c(
-                  "Contractual",
-                  "Ajustado por comportamiento"
-                ),
-                selected = "Contractual",
-                multiple = FALSE
-              )
-            )
-          ),
-          
-          br(),
           # Texto explicativo general
           h4("La siguiente tabla muestra la brecha individual y acumulada por banda y entidad, periodo y moneda seleccionadas."),
           h4("Además, se aprecia el valor de los recursos disponibles para cubrir, en caso de haber, el faltante de liquidez; así como los recursos remanentes en caso de usarse alguno."),
           h4("Por último, se presenta el costo de liquidar inversiones, en caso de que fuera necesario, y el faltante residual, si fuera el caso."),
           h4("Todos los montos están en millones."),
           DTOutput("tabla_cobertura"),
+          
           # Texto con los supuestos de esta página
           h4("Supuestos utilizados"),
           tags$ul(
@@ -569,68 +515,6 @@ ui <- fluidPage(
         tabPanel(
           "Encaje y liquidez por moneda",
           value = "encaje_moneda",
-          br(),
-          
-          h4("Filtros de encaje y liquidez"),
-          
-          
-          fluidRow(
-            column(
-              3,
-              selectInput(
-                "encaje_entidad",
-                "Entidad",
-                choices = c(
-                  "Todas",
-                  sort(unique(modelo$saldos$alias))
-                ),
-                selected = "B",
-                multiple = TRUE
-              )
-            ),
-            
-            column(
-              3,
-              selectInput(
-                "encaje_corte",
-                "Fecha de corte",
-                choices = c(
-                  "Todas",
-                  format(
-                    sort(unique(modelo$saldos$periodo)),
-                    "%Y-%m-%d"
-                  )
-                ),
-                selected = "2026-04-30",
-                multiple = TRUE
-              )
-            ),
-            
-            column(
-              3,
-              selectInput(
-                "encaje_moneda",
-                "Moneda",
-                choices = c("Todas", "MN", "ME"),
-                selected = "Todas",
-                multiple = TRUE
-              )
-            ),
-            
-            column(
-              3,
-              sliderInput(
-                "tasa_encaje_input",
-                "Tasa de encaje",
-                min = 0.05,
-                max = 0.25,
-                value = 0.15,
-                step = 0.05,
-                ticks = TRUE
-              )
-            )
-          ),
-          
           br(),
           
           # Texto explicativo general
@@ -725,12 +609,8 @@ ui <- fluidPage(
           # Tabla de detalle por cuenta contable y banda
           br(),
           h4("Detalle de los 10 activos con mayor coste por liquidez"),
-          DTOutput("tabla_coste_liq")
-        ),
-        
-        # Pestaña de escenarios alternativos y comparación de riesgos
-        tabPanel(
-          "Escenarios y comparación de riesgos",
+          DTOutput("tabla_coste_liq"),
+          
           br(),
           
           # Texto explicativo inicial
@@ -740,7 +620,52 @@ ui <- fluidPage(
           
           # Gráfico de activos y pasivos por banda
           plotlyOutput("grafico_comp_ifne", height = "340px"),
-        )
+        ),
+        
+        # Pestaña de metodología y controles
+        tabPanel(
+          "Metodología y controles",
+          br(),
+          
+          # Tabla del catálogo clasificado por tratamiento general y rubro de liquidez
+          h4("Catálogo clasificado"),
+          DTOutput("tabla_catalogo"),
+          
+          # Tabla con las verificaciones de integridad requeridas
+          h4("Verificaciones de integridad"),
+          DTOutput("tabla_controles"),
+          
+          # Texto explicativo con las reglas de interpretación del modelo
+          h4("Reglas de interpretación"),
+          tags$ul(
+            tags$li(
+              "Clases contables: activo (1), pasivo (2), patrimonio (3), contingente (6)."
+            ),
+            tags$li("Bandas: 1–8, 9–15, 16–30, 31–89, 90–180 y 181+ días."),
+            tags$li(
+              "Pasivos vencidos: primera banda; cobros vencidos: identificados aparte, no reconocidos como cobrados."
+            ),
+            tags$li(
+              "El escenario ajustado usa tasas históricas del corte solamente hasta 30 días."
+            ),
+            tags$li(
+              "Líneas concedidas: solo registro contingente, sin salidas ni cobertura; líneas recibidas: recurso potencial, no entrada contractual."
+            ),
+            tags$li(
+              "Cuentas sin fecha, patrimonio, caja y encaje: no se inventan flujos contractuales."
+            ),
+            tags$li(
+              "No se mezclan fechas de corte, monedas ni saldos contables con movimientos de efectivo."
+            )
+          ),
+          p(
+            "Fuente de las clases: CONASSIF 6-18, artículo 26. Los tratamientos de liquidez son supuestos académicos y no equivalen al ICL/IFNE."
+          ),
+          
+          # Normativa de la SUGEF
+          h4("Anexos consultados"),
+          tags$a(href = "https://www.sugef.fi.cr/normativa/NormativaTransversal.aspx", target = "_blank", "Reglamento y anexos SUGEF")
+        ),
       )
     )
   )
@@ -830,12 +755,6 @@ server <- function(input, output, session) {
     datos <- encaje_reserv(
       saldos = modelo_actual()$saldos,
       tasa_encaje = tasa_encaje_actual()
-    )
-    
-    # Se convierten los montos a millones
-    datos[, 4:ncol(datos)] <- round(
-      datos[, 4:ncol(datos)] / 1000000,
-      4
     )
     
     # Se filtra por entidad
@@ -1680,30 +1599,6 @@ server <- function(input, output, session) {
     content = function(file) {
       # Se extraen los filtros actuales
       datos <- filtrar_como_dt(rubros_actuales(), input$tabla_rubros_rows_all)
-      
-      # Se crea el csv correspondiente
-      exportar_csv(datos, file)
-    }
-  )
-  
-  # Descarga la tabla maestra
-  output$descargar_maestra <- downloadHandler(
-    # Nombre del archivo
-    filename = function()
-      paste0(
-        "tabla_maestra_",
-        input$entidad,
-        "_",
-        input$corte,
-        "_",
-        input$moneda,
-        ".csv"
-      ),
-    
-    # Contenido del archivo a descargar
-    content = function(file) {
-      # Contenido del archivo a descargar
-      datos <- filtrar_como_dt(maestra_actual(), input$tabla_maestra_rows_all)
       
       # Se crea el csv correspondiente
       exportar_csv(datos, file)
