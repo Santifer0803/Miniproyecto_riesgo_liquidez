@@ -78,6 +78,30 @@ coberturas_ajustado <- cobertura_faltantes(modelo, "ajustado")
 modelo$cobertura_contrato <- coberturas_contrato$bandas
 modelo$cobertura_ajustado <- coberturas_ajustado$bandas
 
+# Activos liquidados por entidad
+act_liquidados_contrato <- coberturas_contrato$act_liquidados
+act_liquidados_ajustado <- coberturas_ajustado$act_liquidados
+
+# Se agrega el coste por liquidez
+act_liquidados_contrato <- act_liquidados_contrato |>
+  mutate(coste_liq = valor_mercado - valor_cotizado_venta_urgente)
+
+act_liquidados_ajustado <- act_liquidados_ajustado |>
+  mutate(coste_liq = valor_mercado - valor_cotizado_venta_urgente)
+
+# Se agrega el coste por liquidez a las bandas
+modelo$cobertura_contrato <- act_liquidados_contrato |>
+  group_by(periodo, alias, moneda, banda) |>
+  summarise(salidas_liquidez = sum(coste_liq), .groups = "drop_last") |>
+  right_join(modelo$cobertura_contrato,
+             by = c("periodo", "alias", "moneda", "banda"))
+
+modelo$cobertura_ajustado <- act_liquidados_ajustado |>
+  group_by(periodo, alias, moneda, banda) |>
+  summarise(salidas_liquidez = sum(coste_liq), .groups = "drop_last") |>
+  right_join(modelo$cobertura_ajustado,
+             by = c("periodo", "alias", "moneda", "banda"))
+
 # Se convierten los montos a millones
 modelo$cobertura_contrato[, 5:ncol(modelo$cobertura_contrato)] <-
   round(modelo$cobertura_contrato[, 5:ncol(modelo$cobertura_contrato)] / 1000000, 4)
@@ -85,19 +109,30 @@ modelo$cobertura_contrato[, 5:ncol(modelo$cobertura_contrato)] <-
 modelo$cobertura_ajustado[, 5:ncol(modelo$cobertura_ajustado)] <-
   round(modelo$cobertura_ajustado[, 5:ncol(modelo$cobertura_ajustado)] / 1000000, 4)
 
-# Activos liquidados por entidad
-act_liquidados <- coberturas_contrato$act_liquidados
+# Ordenar la tabla contractual
+modelo$cobertura_contrato <- modelo$cobertura_contrato |>
+  dplyr::arrange(
+    periodo,
+    alias,
+    factor(moneda, levels = c("ME", "MN")),
+    factor(as.character(banda), levels = bandas_liquidez)
+  )
 
-# Se agrega el coste por liquidez
-act_liquidados <- act_liquidados |>
-  mutate(coste_liq = valor_mercado - valor_cotizado_venta_urgente)
+# Ordenar la tabla ajustada por comportamiento
+modelo$cobertura_ajustado <- modelo$cobertura_ajustado |>
+  dplyr::arrange(
+    periodo,
+    alias,
+    factor(moneda, levels = c("ME", "MN")),
+    factor(as.character(banda), levels = bandas_liquidez)
+  )
 
-# Se agrega el coste por liquidez a las bandas
-modelo$cobertura_contrato <- act_liquidados |>
-  group_by(periodo, alias, moneda, banda) |>
-  summarise(salidas_liquidez = sum(coste_liq), .groups = "drop_last") |>
-  right_join(modelo$cobertura_contrato,
-             by = c("periodo", "alias", "moneda", "banda"))
+# Se pone la columna de coste de liquidar inversiones en la penúltima posición
+modelo$cobertura_contrato <- modelo$cobertura_contrato |>
+  dplyr::relocate(salidas_liquidez, .before = dplyr::last_col())
+
+modelo$cobertura_ajustado <- modelo$cobertura_ajustado |>
+  dplyr::relocate(salidas_liquidez, .before = dplyr::last_col())
 
 # Base sujeta a encaje, requerimiento, reservas mantenidas y exceso o faltante
 encaje_reservs <- encaje_reserv(modelo$saldos)
@@ -105,8 +140,12 @@ encaje_reservs <- encaje_reserv(modelo$saldos)
 # Análisis del posible apoyo entre monedas
 bandas_tc <- liquidez_monedas(modelo)
 
-# Valor en riesgo de cada entidad
-var_entidad <- var_liquidez(act_liquidados)
+# Se convierten los montos a millones
+encaje_reservs[, 4:ncol(encaje_reservs)] <- round(encaje_reservs[, 4:ncol(encaje_reservs)] / 1000000, 4)
+
+bandas_tc <- bandas_tc |> dplyr::relocate(tipo_cambio, .before = 5)
+
+bandas_tc[, 6:ncol(bandas_tc)] <- round(bandas_tc[, 6:ncol(bandas_tc)] / 1000000, 4)
 
 # Formato de los montos para tablas
 formato_monto <- function(x) {
@@ -167,29 +206,42 @@ ui <- fluidPage(
     # Panel lateral
     sidebarPanel(
       width = 3,
+      conditionalPanel(
+        condition = paste0(
+          "input.pestanas_principales != 'cobertura' && ",
+          "input.pestanas_principales != 'encaje_moneda'"
+        ),
       
-      # Formato para la selección de la entidad
-      selectInput("entidad", "Entidad", choices = sort(unique(
-        modelo$saldos$alias
-      ))),
+        # Formato para la selección de la entidad
+        selectInput("entidad", "Entidad", choices = sort(unique(
+          modelo$saldos$alias
+        ))),
       
-      # Formato para la selección de la fecha de corte
-      selectInput("corte", "Fecha de corte", choices = format(sort(
-        unique(modelo$saldos$periodo)
-      ), "%Y-%m-%d")),
-      
-      # Formato para la selección de la moneda
-      selectInput("moneda", "Moneda", choices = c("MN", "ME")),
-      
-      # Formato para la selección del escenario
-      selectInput(
-        "escenario",
-        "Vista de flujos",
-        choices = c("Contractual", "Ajustado por comportamiento")
+        # Formato para la selección de la fecha de corte
+        selectInput("corte", "Fecha de corte", choices = format(sort(
+          unique(modelo$saldos$periodo)
+        ), "%Y-%m-%d")),
+        
+        # Formato para la selección de la moneda
+        selectInput("moneda", "Moneda", choices = c("MN", "ME")),
+        
+        # Formato para la selección del escenario
+        selectInput(
+          "escenario",
+          "Vista de flujos",
+          choices = c("Contractual", "Ajustado por comportamiento")
+        ),
+        
+        # Formato para la selección de factor para coste de liquidez
+        sliderInput(
+          "factor",
+          "Factor de liquidez",
+          min = 0.5,
+          max = 2,
+          value = 1,
+          step = 0.5
+        )
       ),
-      
-      # Formato para la selección de factor para coste de liquidez
-      sliderInput("factor", "Factor de liquidez", min = 0.5, max = 2, value = 1, step = 0.5),
       
       # Texto explicativo adicional
       helpText("MN: colones; ME: dólares. Montos sin conversión cruzada."),
@@ -220,6 +272,7 @@ ui <- fluidPage(
       
       # Pestañas superiores que funcionan como las distintas páginas
       tabsetPanel(
+        id = "pestanas_principales",
         # Pestaña de resumen
         tabPanel(
           "Resumen",
@@ -361,6 +414,192 @@ ui <- fluidPage(
           tags$a(href = "https://www.sugef.fi.cr/normativa/NormativaTransversal.aspx", target = "_blank", "Reglamento y anexos SUGEF")
         ),
         
+        # Pestaña de cobertura de faltantes
+        tabPanel(
+          "Cobertura de faltantes",
+          value = "cobertura",
+          br(),
+          
+          h4("Filtros de cobertura"),
+          
+          
+          fluidRow(
+            column(
+              3,
+              selectInput(
+                "cobertura_entidad",
+                "Entidad",
+                choices = c("Todas", sort(unique(
+                  modelo$saldos$alias
+                ))),
+                selected = "B",
+                multiple = TRUE
+              )
+            ),
+            
+            column(
+              3,
+              selectInput(
+                "cobertura_corte",
+                "Fecha de corte",
+                choices = c("Todas", format(sort(
+                  unique(modelo$saldos$periodo)
+                ), "%Y-%m-%d")),
+                selected = "2026-04-30",
+                multiple = TRUE
+              )
+            ),
+            
+            column(
+              3,
+              selectInput(
+                "cobertura_moneda",
+                "Moneda",
+                choices = c("Todas", "MN", "ME"),
+                selected = "Todas",
+                multiple = TRUE
+              )
+            ),
+            
+            column(
+              3,
+              selectInput(
+                "tipo_flujo",
+                "Tipo de flujo",
+                choices = c(
+                  "Contractual",
+                  "Ajustado por comportamiento"
+                ),
+                selected = "Contractual",
+                multiple = FALSE
+              )
+            )
+          ),
+          
+          br(),
+          # Texto explicativo general
+          h4("La siguiente tabla muestra la brecha individual y acumulada por banda y entidad, periodo y moneda seleccionadas."),
+          h4("Además, se aprecia el valor de los recursos disponibles para cubrir, en caso de haber, el faltante de liquidez; así como los recursos remanentes en caso de usarse alguno."),
+          h4("Por último, se presenta el costo de liquidar inversiones, en caso de que fuera necesario, y el faltante residual, si fuera el caso."),
+          h4("Todos los montos están en millones."),
+          DTOutput("tabla_cobertura"),
+          # Texto con los supuestos de esta página
+          h4("Supuestos utilizados"),
+          tags$ul(
+            tags$li(
+              "Los recursos utilizados para atender el faltante de liquidez, en orden de utilización, son:",
+              tags$br(),
+              "1. Disponibilidades utilizables (dinero en caja y bóvedas), de uso inmediato.",
+              tags$br(),
+              "2. Reservas excedentes, calculadas como la diferencia entre las reservas mantenidas y el encaje requerido.",
+              tags$br(),
+              "3. Venta de inversiones, las cuales afectan a las bandas siguientes, ya que no se contaría con esa entrada de liquidez. Se venden a un valor cotizado de venta urgente.",
+              tags$br(),
+              "4. Financiamiento disponible, representado por las líneas de crédito que la entidad puede usar."
+              ),
+            tags$li("Se utilizó un supuesto de encaje del 15%.")
+          ),
+        ),
+        
+        # Pestaña de encaje y liquidez por moneda
+        tabPanel(
+          "Encaje y liquidez por moneda",
+          value = "encaje_moneda",
+          br(),
+          
+          h4("Filtros de encaje y liquidez"),
+          
+          
+          fluidRow(
+            column(
+              3,
+              selectInput(
+                "encaje_entidad",
+                "Entidad",
+                choices = c(
+                  "Todas",
+                  sort(unique(modelo$saldos$alias))
+                ),
+                selected = "B",
+                multiple = TRUE
+              )
+            ),
+            
+            column(
+              3,
+              selectInput(
+                "encaje_corte",
+                "Fecha de corte",
+                choices = c(
+                  "Todas",
+                  format(
+                    sort(unique(modelo$saldos$periodo)),
+                    "%Y-%m-%d"
+                  )
+                ),
+                selected = "2026-04-30",
+                multiple = TRUE
+              )
+            ),
+            
+            column(
+              3,
+              selectInput(
+                "encaje_moneda",
+                "Moneda",
+                choices = c("Todas", "MN", "ME"),
+                selected = "Todas",
+                multiple = TRUE
+              )
+            ),
+            
+            column(
+              3,
+              sliderInput(
+                "tasa_encaje_input",
+                "Tasa de encaje",
+                min = 0.05,
+                max = 0.25,
+                value = 0.15,
+                step = 0.05,
+                ticks = TRUE
+              )
+            )
+          ),
+          
+          br(),
+          
+          # Texto explicativo general
+          h4("A continuación se presenta la base sujeta a encaje, el encaje requerido, las reservas mantenidas y excedentes de la institución, por periodo, entidad y moneda."),
+          h4("Todos los montos están en millones."),
+          DTOutput("tabla_encaje_reservs"),
+          
+          br(),
+          
+          h4("Seguidamente se muestra la situación de liquidez por moneda, con el tipo de cambio respectivo."),
+          h4("Aquí se analiza si la brecha para una entidad, una banda, una moneda y un periodo determinados tiene signo contrario a la de la otra moneda."),
+          h4("En este caso, el monto de la moneda que presenta una brecha positiva se convierte a la otra moneda, con el objetivo de determinar si puede cubrir la brecha negativa de su contraparte."),
+          checkboxInput(
+            "ocultar_na_bandas_tc",
+            "Mostrar solo filas sin valores NA",
+            value = FALSE
+          ),
+          DTOutput("tabla_bandas_tc"),
+          
+          # Supuestos de esta página
+          h4("Supuestos utilizados"),
+          tags$ul(
+            tags$li(
+              "La base sujeta a encaje se conforma de los pasivos asociados a depósitos a la vista y depósitos a plazo."
+            ),
+            tags$li("Las reservas mantenidas son de uso inmediato y sin restricciones."),
+            tags$li("Las reservas excedentes corresponden a la diferencia entre las reservas mantenidas y el encaje requerido."),
+            tags$li("Las reservas excedentes no tienen ninguna restricción adicional y son de uso inmediato."),
+            tags$li("Se utilizó un supuesto de encaje del 15%."),
+            tags$li("Se utilizó un 1% como supuesto simplificado de costo por conversión entre monedas.")
+          ),
+        ),
+        
         # Pestaña de métricas de liquidez
         tabPanel(
           "Medidas de liquidez",
@@ -464,6 +703,63 @@ server <- function(input, output, session) {
   maestra_actual <- reactive(filtrar(modelo$tabla_maestra, filtros()))
   tasas_actuales <- reactive(filtrar(modelo$tasas, filtros()))
   flujos_actuales <- reactive(filtrar(modelo$flujos, filtros()))
+  bandas_cobertura_actuales <- reactive({
+    filtrar(modelo$cobertura_contrato, filtros())
+  })
+  tasa_encaje_actual <- reactive({
+    input$tasa_encaje_input
+  })
+  
+  encaje_reservs_actual <- reactive({
+    
+    # Se recalcula usando la tasa seleccionada
+    datos <- encaje_reserv(
+      saldos = modelo$saldos,
+      tasa_encaje = tasa_encaje_actual()
+    )
+    
+    # Se convierten los montos a millones
+    datos[, 4:ncol(datos)] <- round(
+      datos[, 4:ncol(datos)] / 1000000,
+      4
+    )
+    
+    # Se filtra por entidad
+    if (
+      !is.null(input$encaje_entidad) &&
+      !"Todas" %in% input$encaje_entidad
+    ) {
+      datos <- datos |>
+        dplyr::filter(
+          alias %in% input$encaje_entidad
+        )
+    }
+    
+    # Se filtra por fecha de corte
+    if (
+      !is.null(input$encaje_corte) &&
+      !"Todas" %in% input$encaje_corte
+    ) {
+      datos <- datos |>
+        dplyr::filter(
+          periodo %in% as.Date(input$encaje_corte)
+        )
+    }
+    
+    # Se filtra por moneda
+    if (
+      !is.null(input$encaje_moneda) &&
+      !"Todas" %in% input$encaje_moneda
+    ) {
+      datos <- datos |>
+        dplyr::filter(
+          moneda %in% input$encaje_moneda
+        )
+    }
+    
+    datos
+  })
+  
   columnas_vista <- reactive({
     if (input$escenario == "Contractual") {
       c(
@@ -603,7 +899,7 @@ server <- function(input, output, session) {
                          )) +
       ggplot2::geom_col(show.legend = FALSE) +
       ggplot2::coord_flip() +
-      ggplot2::facet_wrap( ~ clase_contable, scales = "free_y") +
+      ggplot2::facet_wrap(~ clase_contable, scales = "free_y") +
       ggplot2::labs(x = "Rubro", y = "Millones de la moneda seleccionada") +
       ggplot2::theme_minimal()
     plotly::ggplotly(p, tooltip = "text")
@@ -738,6 +1034,57 @@ server <- function(input, output, session) {
   })
   output$tabla_controles <- DT::renderDT(tabla_interactiva(modelo$verificaciones, 5))
   
+  # Tabla de cobertura de faltantes con filtros
+  output$tabla_cobertura <- DT::renderDT({
+    tabla_interactiva(bandas_cobertura_actuales(), 12)
+  })
+  
+  
+  # Tabla de encaje y reservas
+  output$tabla_encaje_reservs <- DT::renderDT({
+    tabla_interactiva(
+      encaje_reservs_actual(),
+      12
+    )
+  })
+  
+  # Tabla de bandas por tipo de cambio
+  output$tabla_bandas_tc <- DT::renderDT({
+    
+    # Obtener los datos filtrados
+    datos <- bandas_tc_actual()
+    
+    # Aplicar el filtro cuando se activa el checkbox
+    if (isTRUE(input$ocultar_na_bandas_tc) && nrow(datos) > 0) {
+      
+      # Columnas que contienen los resultados del análisis cambiario
+      columnas_resultado <- c(
+        "brecha_contrato_tc",
+        "brecha_contrato_residual",
+        "brecha_ajustada_tc",
+        "brecha_ajustada_residual"
+      )
+      
+      # Identificar las parejas por periodo, entidad y banda
+      datos <- datos |>
+        dplyr::group_by(periodo, alias, banda) |>
+        dplyr::filter(
+          any(
+            rowSums(
+              !is.na(
+                dplyr::pick(dplyr::all_of(columnas_resultado))
+              )
+            ) > 0
+          )
+        ) |>
+        dplyr::ungroup()
+      
+    }
+    
+    # Mostrar la tabla
+    tabla_interactiva(datos, 12)
+  })
+  
   # Datos del ICL y el IFNE
   df_icl_ifne <- reactive({
     data.frame(categoria = c("ICL", "IFNE"),
@@ -746,12 +1093,14 @@ server <- function(input, output, session) {
                    datos = modelo$saldos,
                    entidad = input$entidad,
                    fecha = as.Date(input$corte),
-                   moneda_var = input$moneda
+                   moneda_var = input$moneda,
+                   datos_observados = datos_observados
                  ),
                  ifne(
                    datos = modelo$saldos,
                    entidad = input$entidad,
-                   fecha = as.Date(input$corte)
+                   fecha = as.Date(input$corte),
+                   datos_observados = datos_observados
                  )
                ))
   })
@@ -776,7 +1125,7 @@ server <- function(input, output, session) {
   
   # Datos del LVaR por entidad
   var_entidad <- reactive({
-    var_liquidez(act_liquidados, factor_liq = input$factor)
+    var_liquidez(act_liquidados_ajustado, factor_liq = input$factor, datos_contables = datos_contables)
   })
   
   # Datos del VaR y LVaR
@@ -833,12 +1182,106 @@ server <- function(input, output, session) {
   })
   
   # Tabla con los 10 registros con mayor coste de liquidez
-  tabla_liquidez <- reactive({var_entidad()[[2]] |>
-                               filter(alias == input$entidad)})
+  tabla_liquidez <- reactive({
+    var_entidad()[[2]] |>
+      filter(alias == input$entidad)
+  })
   
   # Se hace tabla de coste de liquidez interactiva
   output$tabla_coste_liq <- DT::renderDT({
     tabla_interactiva(tabla_liquidez(), 10)
+  })
+  
+  # Filtrar la tabla de cobertura de faltantes
+  bandas_cobertura_actuales <- reactive({
+    
+    # Seleccionar la tabla según el tipo de flujo
+    if (identical(
+      input$tipo_flujo,
+      "Ajustado por comportamiento"
+    )) {
+      datos <- modelo$cobertura_ajustado
+    } else {
+      datos <- modelo$cobertura_contrato
+    }
+    
+    # Filtrar por entidad
+    if (!is.null(input$cobertura_entidad) &&
+        !"Todas" %in% input$cobertura_entidad) {
+      
+      datos <- datos |>
+        dplyr::filter(
+          alias %in% input$cobertura_entidad
+        )
+    }
+    
+    # Filtrar por fecha de corte
+    if (!is.null(input$cobertura_corte) &&
+        !"Todas" %in% input$cobertura_corte) {
+      
+      datos <- datos |>
+        dplyr::filter(
+          periodo %in% as.Date(input$cobertura_corte)
+        )
+    }
+    
+    # Filtrar por moneda
+    if (!is.null(input$cobertura_moneda) &&
+        !"Todas" %in% input$cobertura_moneda) {
+      
+      datos <- datos |>
+        dplyr::filter(
+          moneda %in% input$cobertura_moneda
+        )
+    }
+    
+    datos
+  })
+  
+  # Filtrar datos de bandas_tc
+  bandas_tc_actual <- reactive({
+    
+    datos <- bandas_tc
+    
+    # Filtrar por entidad
+    if (
+      !is.null(input$encaje_entidad) &&
+      !"Todas" %in% input$encaje_entidad
+    ) {
+      datos <- datos |>
+        dplyr::filter(
+          alias %in% input$encaje_entidad
+        )
+    }
+    
+    # Filtrar por fecha de corte
+    if (
+      !is.null(input$encaje_corte) &&
+      !"Todas" %in% input$encaje_corte
+    ) {
+      datos <- datos |>
+        dplyr::filter(
+          periodo %in% as.Date(input$encaje_corte)
+        )
+    }
+    
+    # Filtrar por moneda
+    if (
+      !is.null(input$encaje_moneda) &&
+      !"Todas" %in% input$encaje_moneda
+    ) {
+      datos <- datos |>
+        dplyr::filter(
+          moneda %in% input$encaje_moneda
+        )
+    }
+    
+    datos
+  })
+  
+  # Mostrar la tabla filtrada
+  output$tabla_cobertura <- DT::renderDT({
+    tabla_interactiva(bandas_cobertura_actuales(), 12)
   })
   
   # Datos para comparar el ifne entre entidades
@@ -856,160 +1299,190 @@ server <- function(input, output, session) {
         ifne(
           modelo[[2]],
           entidad = "A",
-          fecha = ymd("2026-04-30")
+          fecha = ymd("2026-04-30"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "A",
-          fecha = ymd("2026-05-31")
+          fecha = ymd("2026-05-31"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "A",
-          fecha = ymd("2026-06-30")
+          fecha = ymd("2026-06-30"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "A",
-          fecha = ymd("2026-07-31")
+          fecha = ymd("2026-07-31"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "A",
-          fecha = ymd("2026-08-31")
+          fecha = ymd("2026-08-31"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "A",
-          fecha = ymd("2026-09-30")
+          fecha = ymd("2026-09-30"),
+          datos_observados = datos_observados
         )
       ),
       ifne_b = c(
         ifne(
           modelo[[2]],
           entidad = "B",
-          fecha = ymd("2026-04-30")
+          fecha = ymd("2026-04-30"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "B",
-          fecha = ymd("2026-05-31")
+          fecha = ymd("2026-05-31"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "B",
-          fecha = ymd("2026-06-30")
+          fecha = ymd("2026-06-30"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "B",
-          fecha = ymd("2026-07-31")
+          fecha = ymd("2026-07-31"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "B",
-          fecha = ymd("2026-08-31")
+          fecha = ymd("2026-08-31"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "B",
-          fecha = ymd("2026-09-30")
+          fecha = ymd("2026-09-30"),
+          datos_observados = datos_observados
         )
       ),
       ifne_c = c(
         ifne(
           modelo[[2]],
           entidad = "C",
-          fecha = ymd("2026-04-30")
+          fecha = ymd("2026-04-30"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "C",
-          fecha = ymd("2026-05-31")
+          fecha = ymd("2026-05-31"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "C",
-          fecha = ymd("2026-06-30")
+          fecha = ymd("2026-06-30"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "C",
-          fecha = ymd("2026-07-31")
+          fecha = ymd("2026-07-31"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "C",
-          fecha = ymd("2026-08-31")
+          fecha = ymd("2026-08-31"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "C",
-          fecha = ymd("2026-09-30")
+          fecha = ymd("2026-09-30"),
+          datos_observados = datos_observados
         )
       ),
       ifne_d = c(
         ifne(
           modelo[[2]],
           entidad = "D",
-          fecha = ymd("2026-04-30")
+          fecha = ymd("2026-04-30"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "D",
-          fecha = ymd("2026-05-31")
+          fecha = ymd("2026-05-31"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "D",
-          fecha = ymd("2026-06-30")
+          fecha = ymd("2026-06-30"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "D",
-          fecha = ymd("2026-07-31")
+          fecha = ymd("2026-07-31"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "D",
-          fecha = ymd("2026-08-31")
+          fecha = ymd("2026-08-31"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "D",
-          fecha = ymd("2026-09-30")
+          fecha = ymd("2026-09-30"),
+          datos_observados = datos_observados
         )
       ),
       ifne_e = c(
         ifne(
           modelo[[2]],
           entidad = "E",
-          fecha = ymd("2026-04-30")
+          fecha = ymd("2026-04-30"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "E",
-          fecha = ymd("2026-05-31")
+          fecha = ymd("2026-05-31"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "E",
-          fecha = ymd("2026-06-30")
+          fecha = ymd("2026-06-30"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "E",
-          fecha = ymd("2026-07-31")
+          fecha = ymd("2026-07-31"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "E",
-          fecha = ymd("2026-08-31")
+          fecha = ymd("2026-08-31"),
+          datos_observados = datos_observados
         ),
         ifne(
           modelo[[2]],
           entidad = "E",
-          fecha = ymd("2026-09-30")
+          fecha = ymd("2026-09-30"),
+          datos_observados = datos_observados
         )
       )
     )
