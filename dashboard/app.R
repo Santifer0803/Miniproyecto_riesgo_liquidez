@@ -1,6 +1,6 @@
 
 # Librerías necesarias
-pacman::p_load(janitor, knitr, plotly, readxl, shiny, tidyverse, here, DT)
+pacman::p_load(bslib, janitor, knitr, plotly, readxl, shiny, tidyverse, here, DT)
 
 # Datos necesarios
 ruta_datos <- here("data", "miniLiquidez_DATOS.xlsx")
@@ -204,8 +204,20 @@ filtrar_como_dt <- function(datos, filas) {
     datos[filas, , drop = FALSE]
 }
 
+# Tema de la aplicación
+tema <- bs_theme(
+  version = 5,
+  bootswatch = "cosmo",        # tema predefinido (cosmo, darkly, minty...)
+  primary = "#2C7BE5",
+  base_font = font_google("Inter"),
+  heading_font = font_google("Poppins")
+)
+
 # Diseño de la aplicación
 ui <- fluidPage(
+  # Se aplica el tema a la aplicación
+  theme = tema,
+  
   # Estilo por CSS
   tags$head(tags$style(HTML(
     paste0(
