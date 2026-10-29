@@ -1,4 +1,3 @@
-
 # Librerías necesarias
 pacman::p_load(janitor, knitr, plotly, readxl, shiny, tidyverse, here, DT)
 
@@ -117,6 +116,11 @@ tabla_interactiva <- function(datos, pagina = 12) {
   )
 }
 
+# Aplica los filtros del dataframe a la tabla a descargar
+filtrar_como_dt <- function(datos, filas) {
+  if (is.null(filas)) datos else datos[filas, , drop = FALSE]
+}
+
 # Diseño de la aplicación
 ui <- fluidPage(
   # Estilo por CSS
@@ -177,7 +181,10 @@ ui <- fluidPage(
       downloadButton("descargar_saldos", "Descargar saldos (CSV)"),
       br(),
       br(),
-      downloadButton("descargar_maestra", "Descargar tabla maestra (CSV)")
+      downloadButton("descargar_maestra", "Descargar tabla maestra (CSV)"),
+      br(),
+      br(),
+      downloadButton("descargar_liquidar", "Descargar liquidez (CSV)")
     ),
     
     # Panel principal en donde se ubican los gráficos y las tablas
@@ -359,6 +366,35 @@ ui <- fluidPage(
           h4("Anexos consultados"),
           tags$a(href = "https://www.sugef.fi.cr/normativa/normativa_vigente/SUGEF%2017-13%20(v18%201°%20SET2024).pdf", target = "_blank", "Acuerdo SUGEF 17-13")
         ),
+        
+        # Pestaña de valor en riesgo ajustado por liquidez
+        tabPanel(
+          "Valor en riesgo ajustado por liquidez",
+          br(),
+          
+          # Texto explicativo inicial
+          p(
+            "El gráfico muestra las medidas de valor en riesgo y su coste por liquidez. El VaR fue estimado con un horizonte de tiempo mensual a partir de los datos dados."
+          ),
+          
+          # Gráfico de activos y pasivos por banda
+          plotlyOutput("grafico_lvar", height = "340px"),
+          br(),
+          
+          # Texto explicativo con los supuestos del modelo
+          h4("Supuestos utilizados"),
+          tags$ul(
+            tags$li(
+              "Tanto el VaR como el coste por liquidez fueron calculados en colones, usando el tipo de cambio correspondiente en el caso de los activos presentados en moneda extranjera."
+            ),
+            tags$li("El coste de liquidación fue calculado como la diferencia entre el valor de mercado del activo y el valor cotizado de venta urgente, debido a la falta de datos.")
+          ),
+          
+          # Tabla de detalle por cuenta contable y banda
+          br(),
+          h4("Detalle de los 10 activos con mayor coste por liquidez"),
+          DTOutput("tabla_coste_liq")
+        )
       )
     )
   )
@@ -695,13 +731,58 @@ server <- function(input, output, session) {
                      yaxis = list(title = "Unidades"))
   })
   
+  # Datos del VaR y LVaR
+  df_lvar <- reactive({
+    var_entidad[[1]] |> 
+      filter(alias == input$entidad)
+  })
+  
+  # Gráfico del VaR y LVaR
+  output$grafico_lvar <- renderPlotly({
+    # Se llama al dataframe
+    d <- df_lvar() |>
+      select(var_95, var_99, coste_liq, var_liq_95, var_liq_99) |>
+      pivot_longer(cols = everything(),
+                   names_to = "metrica",
+                   values_to = "valor")
+    
+    # Se genera el gráfico
+    plotly::plot_ly(
+      data = d,
+      x = ~ metrica,
+      y = ~ valor / 1000000,
+      type = "bar",
+      marker = list(color = "#247f79")
+    ) |>
+      plotly::layout(
+        xaxis = list(
+          title = "Medida",
+          categoryorder = "array",
+          categoryarray = c("var_95", "var_99", "coste_liq", "var_liq_95", "var_liq_99"),
+          tickvals = c("var_95", "var_99", "coste_liq", "var_liq_95", "var_liq_99"),
+          ticktext = c("VaR 95%", "VaR 99%", "Coste por liquidez", "LVaR 95%", "LVaR 99%")
+        ),
+        yaxis = list(title = "Millones de colones")
+      )
+  })
+  
+  # Tabla con los 10 registros con mayor coste de liquidez
+  tabla_liquidez <- reactive(var_entidad[[2]] |>
+                               filter(alias == input$entidad))
+  
+  # Se hace tabla de coste de liquidez interactiva
+  output$tabla_coste_liq <- DT::renderDT({
+    tabla_interactiva(tabla_liquidez(), 10)
+  })
+  
   # Función para hacer un archivo excel/csv de unos datos
   exportar_csv <- function(datos, archivo) {
     readr::write_excel_csv(datos, archivo, na = "")
   }
   
-  # Descarga la tabla de brechas
+  # Descarga las brechas por plazo
   output$descargar_bandas <- downloadHandler(
+    # Nombre del archivo
     filename = function()
       paste0(
         "brechas_",
@@ -712,12 +793,20 @@ server <- function(input, output, session) {
         input$moneda,
         ".csv"
       ),
-    content = function(file)
-      exportar_csv(bandas_actuales(), file)
+    
+    # Contenido del archivo a descargar
+    content = function(file) {
+      # Se extraen los filtros actuales
+      datos <- filtrar_como_dt(bandas_actuales(), input$tabla_bandas_rows_all)
+      
+      # Se crea el csv correspondiente
+      exportar_csv(datos, file)
+    }
   )
   
   # Descarga la tabla de rubros
   output$descargar_rubros <- downloadHandler(
+    # Nombre del archivo
     filename = function()
       paste0(
         "rubros_",
@@ -728,12 +817,20 @@ server <- function(input, output, session) {
         input$moneda,
         ".csv"
       ),
-    content = function(file)
-      exportar_csv(rubros_actuales(), file)
+    
+    # Contenido del archivo a descargar
+    content = function(file) {
+      # Se extraen los filtros actuales
+      datos <- filtrar_como_dt(rubros_actuales(), input$tabla_rubros_rows_all)
+      
+      # Se crea el csv correspondiente
+      exportar_csv(datos, file)
+    }
   )
   
   # Descarga la tabla maestra
   output$descargar_maestra <- downloadHandler(
+    # Nombre del archivo
     filename = function()
       paste0(
         "tabla_maestra_",
@@ -744,12 +841,20 @@ server <- function(input, output, session) {
         input$moneda,
         ".csv"
       ),
-    content = function(file)
-      exportar_csv(maestra_actual(), file)
+    
+    # Contenido del archivo a descargar
+    content = function(file) {
+      # Contenido del archivo a descargar
+      datos <- filtrar_como_dt(maestra_actual(), input$tabla_maestra_rows_all)
+      
+      # Se crea el csv correspondiente
+      exportar_csv(datos, file)
+    }
   )
   
   # Descarga la tabla de saldos
   output$descargar_saldos <- downloadHandler(
+    # Nombre del archivo
     filename = function()
       paste0(
         "saldos_",
@@ -760,8 +865,39 @@ server <- function(input, output, session) {
         input$moneda,
         ".csv"
       ),
-    content = function(file)
-      exportar_csv(estructura_actual(), file)
+    
+    # Contenido del archivo a descargar
+    content = function(file) {
+      # Contenido del archivo a descargar
+      datos <- filtrar_como_dt(estructura_actual(), input$tabla_estructura_rows_all)
+      
+      # Se crea el csv correspondiente
+      exportar_csv(datos, file)
+    }
+  )
+  
+  # Descarga la tabla de los activos con mayor coste por liquidar
+  output$descargar_liquidar <- downloadHandler(
+    # Nombre del archivo
+    filename = function()
+      paste0(
+        "activos_liquidar_",
+        input$entidad,
+        "_",
+        input$corte,
+        "_",
+        input$moneda,
+        ".csv"
+      ),
+    
+    # Contenido del archivo a descargar
+    content = function(file) {
+      # Contenido del archivo a descargar
+      datos <- filtrar_como_dt(tabla_liquidez(), input$tabla_coste_liq_rows_all)
+      
+      # Se crea el csv correspondiente
+      exportar_csv(datos, file)
+    }
   )
 }
 
