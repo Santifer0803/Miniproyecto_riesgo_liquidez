@@ -71,23 +71,32 @@ modelo <- crear_modelo_liquidez(datos_contables,
                                 datos_catalogo)
 
 # Se ejecuta la función para las coberturas de faltantes de liquidez
-coberturas <- cobertura_faltantes(modelo)
+coberturas_contrato <- cobertura_faltantes(modelo, "contrato")
+coberturas_ajustado <- cobertura_faltantes(modelo, "ajustado")
 
 # Se agrega la nueva tabla con las coberturas al modelo
-modelo$bandas_cobertura <- coberturas$bandas
+modelo$cobertura_contrato <- coberturas_contrato$bandas
+modelo$cobertura_ajustado <- coberturas_ajustado$bandas
+
+# Se convierten los montos a millones
+modelo$cobertura_contrato[, 5:ncol(modelo$cobertura_contrato)] <-
+  round(modelo$cobertura_contrato[, 5:ncol(modelo$cobertura_contrato)] / 1000000, 4)
+
+modelo$cobertura_ajustado[, 5:ncol(modelo$cobertura_ajustado)] <-
+  round(modelo$cobertura_ajustado[, 5:ncol(modelo$cobertura_ajustado)] / 1000000, 4)
 
 # Activos liquidados por entidad
-act_liquidados <- coberturas$act_liquidados
+act_liquidados <- coberturas_contrato$act_liquidados
 
 # Se agrega el coste por liquidez
 act_liquidados <- act_liquidados |>
   mutate(coste_liq = valor_mercado - valor_cotizado_venta_urgente)
 
 # Se agrega el coste por liquidez a las bandas
-modelo$bandas_cobertura <- act_liquidados |>
+modelo$cobertura_contrato <- act_liquidados |>
   group_by(periodo, alias, moneda, banda) |>
   summarise(salidas_liquidez = sum(coste_liq), .groups = "drop_last") |>
-  right_join(modelo$bandas_cobertura,
+  right_join(modelo$cobertura_contrato,
              by = c("periodo", "alias", "moneda", "banda"))
 
 # Base sujeta a encaje, requerimiento, reservas mantenidas y exceso o faltante
@@ -95,6 +104,9 @@ encaje_reservs <- encaje_reserv(modelo$saldos)
 
 # Análisis del posible apoyo entre monedas
 bandas_tc <- liquidez_monedas(modelo)
+
+# Valor en riesgo de cada entidad
+var_entidad <- var_liquidez(act_liquidados)
 
 # Formato de los montos para tablas
 formato_monto <- function(x) {
