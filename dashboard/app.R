@@ -75,12 +75,19 @@ coberturas <- cobertura_faltantes(modelo)
 # Se agrega la nueva tabla con las coberturas al modelo
 modelo$bandas_cobertura <- coberturas$bandas
 
+# Se agrega el coste por liquidez a las bandas
+modelo$bandas_cobertura <- act_liquidados |>
+  group_by(periodo, alias, moneda, banda) |>
+  summarise(salidas_liquidez = sum(coste_liq), .groups = "drop_last") |>
+  right_join(modelo$bandas_cobertura,
+             by = c("periodo", "alias", "moneda", "banda"))
+
 # Activos liquidados por entidad
 act_liquidados <- coberturas$act_liquidados
 
 # Se agrega el coste por liquidez
 act_liquidados <- act_liquidados |>
-  mutate(coste_liq = (valor_mercado - valor_cotizado_venta_urgente) * crc_por_unidad)
+  mutate(coste_liq = valor_mercado - valor_cotizado_venta_urgente)
 
 # Base sujeta a encaje, requerimiento, reservas mantenidas y exceso o faltante
 encaje_reservs <- encaje_reserv(modelo$saldos)
@@ -583,7 +590,7 @@ server <- function(input, output, session) {
                          )) +
       ggplot2::geom_col(show.legend = FALSE) +
       ggplot2::coord_flip() +
-      ggplot2::facet_wrap(~ clase_contable, scales = "free_y") +
+      ggplot2::facet_wrap( ~ clase_contable, scales = "free_y") +
       ggplot2::labs(x = "Rubro", y = "Millones de la moneda seleccionada") +
       ggplot2::theme_minimal()
     plotly::ggplotly(p, tooltip = "text")
