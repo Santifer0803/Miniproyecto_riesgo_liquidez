@@ -1,4 +1,4 @@
-# Miniproyecto_riesgo_liquidez
+# Miniproyecto de riesgo de liquidez
 
 ## Integrantes
 * Alejandro Brenes Calderón.
@@ -11,6 +11,7 @@ B.
 
 ## Paquetes requeridos
 
+* bslib: Carga temas para la aplicación.
 * janitor: Limpia los nombres de las columnas
 * knitr: Personalización de las tablas.
 * plotly: Gráficos interactivos.
