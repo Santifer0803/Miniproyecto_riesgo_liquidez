@@ -136,9 +136,11 @@ preparar_saldos <- function(datos_contables, catalogo_clasificado) {
         rubro_liquidez == "Encaje en el BCCR" ~
           "Encaje; no libre automáticamente",
         rubro_liquidez == "Inversiones restringidas" ~
-          "Restringida",!is.na(fecha_liberacion) &
+          "Restringida",
+        !is.na(fecha_liberacion) &
           as.Date(fecha_liberacion) > periodo ~
-          "Restringida hasta liberación",!is.na(saldo_comprometido) &
+          "Restringida hasta liberación",
+        !is.na(saldo_comprometido) &
           saldo_comprometido > 0 &
           (
             is.na(fecha_fin_compromiso) |
@@ -310,7 +312,7 @@ preparar_flujos <- function(datos_contrato, saldos, tasas) {
 
 resumir_bandas <- function(flujos) {
   # Las brechas solo recogen pagos contractuales y sus ajustes de comportamiento.
-  # Las líneas contingentes no generan flujos ni salidas en este modelo.
+  # Las líneas contingentes no generan entradas ni salidas en este modelo.
   flujos |>
     dplyr::filter(banda %in% bandas_liquidez) |>
     dplyr::group_by(periodo, alias, moneda, banda) |>
@@ -874,7 +876,109 @@ cobertura_faltantes <- function(modelo) {
 
 ################## Punto 5 ##################
 
+encaje_reserv <- function(saldos) {
+  # Base sujeta a encaje por periodo, entidad y moneda
+  base_encaje <- saldos %>%
+    filter(rubro_liquidez %in% c("Depósitos a la vista", "Depósitos a plazo")) %>%
+    group_by(periodo, alias, moneda) %>%
+    summarise(base_encaje = sum(saldo_contable, na.rm = TRUE),
+              .groups = "drop")
+  
+  # Se agrega el encaje requerido
+  base_encaje <- base_encaje %>%
+    mutate(requerimiento = base_encaje * tasa_encaje)
+  
+  # Reservas mantenidas por periodo, entidad y moneda
+  reserv_man <- saldos %>%
+    filter(rubro_liquidez == "Encaje en el BCCR") %>%
+    group_by(periodo, alias, moneda) %>%
+    summarise(reserv_man = sum(saldo_contable, na.rm = TRUE),
+              .groups = "drop")
+  
+  # Se juntan las bases anteriores y se agrega el exceso o faltante de reservas
+  reserv_exc <- base_encaje %>%
+    left_join(reserv_man, by = c("periodo", "alias", "moneda")) %>%
+    mutate(reserv_exc = reserv_man - requerimiento)
+  
+  return(reserv_exc)
+}
 
+# Costo de conversión entre monedas
+costo_tc <- 0.01
+
+liquidez_monedas <- function(modelo) {
+  # Se seleccionan los dataframes a usar
+  bandas <- modelo$bandas
+  saldos <- modelo$saldos
+  
+  # Se seleccionan los tipos de cambio por periodo
+  tipos_cambios <- saldos %>%
+    distinct(periodo, moneda, .keep_all = TRUE)
+  
+  # Se asigna el tipo de cambio a todas las filas correspondientes
+  bandas <- bandas %>%
+    select(-any_of("tipo_cambio")) %>%
+    left_join(
+      tipos_cambios %>%
+        select(periodo, moneda, crc_por_unidad),
+      by = c("periodo", "moneda")
+    ) %>%
+    rename(tipo_cambio = crc_por_unidad)
+  
+  bandas <- bandas %>%
+    group_by(periodo) %>%
+    mutate(tipo_cambio = ifelse(moneda == "MN", first(tipo_cambio[moneda == "ME"]), tipo_cambio)) %>%
+    ungroup()
+  
+  # Se analizan los casos, se calcula la brecha convertida usando el tipo de
+  # cambio (en caso de que corresponda), y se le suma a que es negativa
+  bandas <- bandas %>%
+    group_by(periodo, alias, banda) %>%
+    mutate(
+      brecha_contrato_tc = case_when(
+        # MN positiva y ME negativa:
+        moneda == "MN" &
+          brecha_contrato > 0 &
+          any(moneda == "ME" & brecha_contrato < 0) ~
+          (brecha_contrato / tipo_cambio) * (1 - costo_tc),
+        
+        # ME positiva y MN negativa:
+        moneda == "ME" &
+          brecha_contrato > 0 &
+          any(moneda == "MN" & brecha_contrato < 0) ~
+          (brecha_contrato * tipo_cambio) * (1 - costo_tc),
+        
+        # Los demás casos no requieren conversión:
+        TRUE ~ NA
+      ),
+      
+      # Brecha negativa más la brecha convertida
+      brecha_contrato_residual = case_when(
+        brecha_contrato < 0 &
+          any(!is.na(brecha_contrato_tc)) ~
+          brecha_contrato +
+          sum(brecha_contrato_tc, na.rm = TRUE),
+        
+        TRUE ~ NA_real_
+      )
+    ) %>%
+    ungroup()
+  
+  # Se quitan columnas innecesarias
+  bandas <- bandas %>%
+    select(-c(
+      entradas_contrato,
+      salidas_contrato,
+      entradas_ajustadas,
+      salidas_ajustadas
+    ))
+  
+  # Se ordena el dataframe
+  bandas <- bandas %>%
+    arrange(periodo, alias, banda, moneda)
+  
+  return(bandas)
+}
 
 ################## Punto 6 ##################
 
