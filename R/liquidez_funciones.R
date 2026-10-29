@@ -1277,7 +1277,7 @@ ifne <- function(datos,
 ################## Punto 7 ##################
 
 # Función que calcula el VaR y LVaR para cada entidad
-var_liquidez <- function(datos, factor_liq) {
+var_liquidez <- function(datos, factor_liq = 1) {
   # Se calcula el VaR para cada entidad
   tabla_var <- datos_contables |>
     filter(grepl("Instrumentos financieros", nombre_cuenta_catalogo)) |>
