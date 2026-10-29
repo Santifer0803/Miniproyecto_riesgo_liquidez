@@ -70,82 +70,102 @@ modelo <- crear_modelo_liquidez(datos_contables,
                                 datos_observados,
                                 datos_catalogo)
 
-# Se ejecuta la función para las coberturas de faltantes de liquidez
-coberturas_contrato <- cobertura_faltantes(modelo, "contrato")
-coberturas_ajustado <- cobertura_faltantes(modelo, "ajustado")
-
-# Se agrega la nueva tabla con las coberturas al modelo
-modelo$cobertura_contrato <- coberturas_contrato$bandas
-modelo$cobertura_ajustado <- coberturas_ajustado$bandas
-
-# Activos liquidados por entidad
-act_liquidados_contrato <- coberturas_contrato$act_liquidados
-act_liquidados_ajustado <- coberturas_ajustado$act_liquidados
-
-# Se agrega el coste por liquidez
-act_liquidados_contrato <- act_liquidados_contrato |>
-  mutate(coste_liq = valor_mercado - valor_cotizado_venta_urgente)
-
-act_liquidados_ajustado <- act_liquidados_ajustado |>
-  mutate(coste_liq = valor_mercado - valor_cotizado_venta_urgente)
-
-# Se agrega el coste por liquidez a las bandas
-modelo$cobertura_contrato <- act_liquidados_contrato |>
-  group_by(periodo, alias, moneda, banda) |>
-  summarise(salidas_liquidez = sum(coste_liq), .groups = "drop_last") |>
-  right_join(modelo$cobertura_contrato,
-             by = c("periodo", "alias", "moneda", "banda"))
-
-modelo$cobertura_ajustado <- act_liquidados_ajustado |>
-  group_by(periodo, alias, moneda, banda) |>
-  summarise(salidas_liquidez = sum(coste_liq), .groups = "drop_last") |>
-  right_join(modelo$cobertura_ajustado,
-             by = c("periodo", "alias", "moneda", "banda"))
-
-# Se convierten los montos a millones
-modelo$cobertura_contrato[, 5:ncol(modelo$cobertura_contrato)] <-
-  round(modelo$cobertura_contrato[, 5:ncol(modelo$cobertura_contrato)] / 1000000, 4)
-
-modelo$cobertura_ajustado[, 5:ncol(modelo$cobertura_ajustado)] <-
-  round(modelo$cobertura_ajustado[, 5:ncol(modelo$cobertura_ajustado)] / 1000000, 4)
-
-# Ordenar la tabla contractual
-modelo$cobertura_contrato <- modelo$cobertura_contrato |>
-  dplyr::arrange(
-    periodo,
-    alias,
-    factor(moneda, levels = c("ME", "MN")),
-    factor(as.character(banda), levels = bandas_liquidez)
+# Punto 2.3: esta función reutiliza SIN cambiar las operaciones de los módulos 2.4 y 2.5.
+# Al recalcular tasas, todas las tablas posteriores parten del mismo modelo actualizado.
+recalcular_resultados <- function(modelo) {
+  # Se ejecuta la función para las coberturas de faltantes de liquidez
+  coberturas_contrato <- cobertura_faltantes(modelo, "contrato")
+  coberturas_ajustado <- cobertura_faltantes(modelo, "ajustado")
+  
+  # Se agrega la nueva tabla con las coberturas al modelo
+  modelo$cobertura_contrato <- coberturas_contrato$bandas
+  modelo$cobertura_ajustado <- coberturas_ajustado$bandas
+  
+  # Activos liquidados por entidad
+  act_liquidados_contrato <- coberturas_contrato$act_liquidados
+  act_liquidados_ajustado <- coberturas_ajustado$act_liquidados
+  
+  # Se agrega el coste por liquidez
+  act_liquidados_contrato <- act_liquidados_contrato |>
+    mutate(coste_liq = valor_mercado - valor_cotizado_venta_urgente)
+  
+  act_liquidados_ajustado <- act_liquidados_ajustado |>
+    mutate(coste_liq = valor_mercado - valor_cotizado_venta_urgente)
+  
+  # Se agrega el coste por liquidez a las bandas
+  modelo$cobertura_contrato <- act_liquidados_contrato |>
+    group_by(periodo, alias, moneda, banda) |>
+    summarise(salidas_liquidez = sum(coste_liq), .groups = "drop_last") |>
+    right_join(modelo$cobertura_contrato,
+               by = c("periodo", "alias", "moneda", "banda"))
+  
+  modelo$cobertura_ajustado <- act_liquidados_ajustado |>
+    group_by(periodo, alias, moneda, banda) |>
+    summarise(salidas_liquidez = sum(coste_liq), .groups = "drop_last") |>
+    right_join(modelo$cobertura_ajustado,
+               by = c("periodo", "alias", "moneda", "banda"))
+  
+  # Se convierten los montos a millones
+  modelo$cobertura_contrato[, 5:ncol(modelo$cobertura_contrato)] <-
+    round(modelo$cobertura_contrato[, 5:ncol(modelo$cobertura_contrato)] / 1000000, 4)
+  
+  modelo$cobertura_ajustado[, 5:ncol(modelo$cobertura_ajustado)] <-
+    round(modelo$cobertura_ajustado[, 5:ncol(modelo$cobertura_ajustado)] / 1000000, 4)
+  
+  # Ordenar la tabla contractual
+  modelo$cobertura_contrato <- modelo$cobertura_contrato |>
+    dplyr::arrange(
+      periodo,
+      alias,
+      factor(moneda, levels = c("ME", "MN")),
+      factor(as.character(banda), levels = bandas_liquidez)
+    )
+  
+  # Ordenar la tabla ajustada por comportamiento
+  modelo$cobertura_ajustado <- modelo$cobertura_ajustado |>
+    dplyr::arrange(
+      periodo,
+      alias,
+      factor(moneda, levels = c("ME", "MN")),
+      factor(as.character(banda), levels = bandas_liquidez)
+    )
+  
+  # Se pone la columna de coste de liquidar inversiones en la penúltima posición
+  modelo$cobertura_contrato <- modelo$cobertura_contrato |>
+    dplyr::relocate(salidas_liquidez, .before = dplyr::last_col())
+  
+  modelo$cobertura_ajustado <- modelo$cobertura_ajustado |>
+    dplyr::relocate(salidas_liquidez, .before = dplyr::last_col())
+  
+  # Base sujeta a encaje, requerimiento, reservas mantenidas y exceso o faltante
+  encaje_reservs <- encaje_reserv(modelo$saldos)
+  
+  # Análisis del posible apoyo entre monedas
+  bandas_tc <- liquidez_monedas(modelo)
+  
+  # Se convierten los montos a millones
+  encaje_reservs[, 4:ncol(encaje_reservs)] <- round(encaje_reservs[, 4:ncol(encaje_reservs)] / 1000000, 4)
+  
+  bandas_tc <- bandas_tc |> dplyr::relocate(tipo_cambio, .before = 5)
+  
+  bandas_tc[, 6:ncol(bandas_tc)] <- round(bandas_tc[, 6:ncol(bandas_tc)] / 1000000, 4)
+  
+  list(
+    modelo = modelo,
+    act_liquidados_contrato = act_liquidados_contrato,
+    act_liquidados_ajustado = act_liquidados_ajustado,
+    encaje_reservs = encaje_reservs,
+    bandas_tc = bandas_tc
   )
+}
 
-# Ordenar la tabla ajustada por comportamiento
-modelo$cobertura_ajustado <- modelo$cobertura_ajustado |>
-  dplyr::arrange(
-    periodo,
-    alias,
-    factor(moneda, levels = c("ME", "MN")),
-    factor(as.character(banda), levels = bandas_liquidez)
-  )
-
-# Se pone la columna de coste de liquidar inversiones en la penúltima posición
-modelo$cobertura_contrato <- modelo$cobertura_contrato |>
-  dplyr::relocate(salidas_liquidez, .before = dplyr::last_col())
-
-modelo$cobertura_ajustado <- modelo$cobertura_ajustado |>
-  dplyr::relocate(salidas_liquidez, .before = dplyr::last_col())
-
-# Base sujeta a encaje, requerimiento, reservas mantenidas y exceso o faltante
-encaje_reservs <- encaje_reserv(modelo$saldos)
-
-# Análisis del posible apoyo entre monedas
-bandas_tc <- liquidez_monedas(modelo)
-
-# Se convierten los montos a millones
-encaje_reservs[, 4:ncol(encaje_reservs)] <- round(encaje_reservs[, 4:ncol(encaje_reservs)] / 1000000, 4)
-
-bandas_tc <- bandas_tc |> dplyr::relocate(tipo_cambio, .before = 5)
-
-bandas_tc[, 6:ncol(bandas_tc)] <- round(bandas_tc[, 6:ncol(bandas_tc)] / 1000000, 4)
+# Resultado base: es exactamente el modelo histórico usado antes de añadir controles.
+resultados_base <- recalcular_resultados(modelo)
+modelo <- resultados_base$modelo
+act_liquidados_contrato <- resultados_base$act_liquidados_contrato
+act_liquidados_ajustado <- resultados_base$act_liquidados_ajustado
+encaje_reservs <- resultados_base$encaje_reservs
+bandas_tc <- resultados_base$bandas_tc
 
 # Formato de los montos para tablas
 formato_monto <- function(x) {
@@ -211,12 +231,12 @@ ui <- fluidPage(
           "input.pestanas_principales != 'cobertura' && ",
           "input.pestanas_principales != 'encaje_moneda'"
         ),
-      
+        
         # Formato para la selección de la entidad
         selectInput("entidad", "Entidad", choices = sort(unique(
           modelo$saldos$alias
         ))),
-      
+        
         # Formato para la selección de la fecha de corte
         selectInput("corte", "Fecha de corte", choices = format(sort(
           unique(modelo$saldos$periodo)
@@ -240,16 +260,39 @@ ui <- fluidPage(
           max = 2,
           value = 1,
           step = 0.5
-        )
+        ),
+        
+        # Punto 2.3: controles de comportamiento que recalculan todos los módulos.
+        hr(),
+        h4("Escenario de comportamiento"),
+        selectInput(
+          "modo_tasas",
+          "Tasas utilizadas",
+          choices = c("Base (tasas históricas)" = "base",
+                      "Personalizado" = "personalizado"),
+          selected = "base"
+        ),
+        conditionalPanel(
+          condition = "input.modo_tasas == 'personalizado'",
+          numericInput("tasa_retiros_param", "Retiros de depósitos (%)",
+                       value = 50, min = 0, max = 100, step = 1),
+          numericInput("tasa_renovacion_param", "Renovaciones a plazo (%)",
+                       value = 50, min = 0, max = 100, step = 1),
+          numericInput("tasa_cobro_param", "Recuperación de cobros (%)",
+                       value = 80, min = 0, max = 100, step = 1),
+          helpText("En personalizado, los tres porcentajes se aplican a todas las entidades, fechas y monedas; no se modifica la tasa de uso de líneas."),
+          actionButton("restaurar_tasas", "Volver a tasas históricas")
+        ),
+        textOutput("tasas_base_seleccion")
       ),
       
-      # Texto explicativo adicional
-      helpText("MN: colones; ME: dólares. Montos sin conversión cruzada."),
+
+      helpText("MN: colones; ME: dólares."),
       helpText(
-        "La vista ajustada usa observaciones del corte. No es un escenario de tensión regulatoria."
+        ""
       ),
       
-      # Botones de descarga para las distintas tablas
+      # Botones de descarga para las tablas
       hr(),
       downloadButton("descargar_bandas", "Descargar brechas (CSV)"),
       br(),
@@ -496,7 +539,7 @@ ui <- fluidPage(
               "3. Venta de inversiones, las cuales afectan a las bandas siguientes, ya que no se contaría con esa entrada de liquidez. Se venden a un valor cotizado de venta urgente.",
               tags$br(),
               "4. Financiamiento disponible, representado por las líneas de crédito que la entidad puede usar."
-              ),
+            ),
             tags$li("Se utilizó un supuesto de encaje del 15%.")
           ),
         ),
@@ -684,6 +727,56 @@ ui <- fluidPage(
 
 # Servidor que define, internamente, qué hace la aplicación
 server <- function(input, output, session) {
+  # Punto 2.3: los valores base NO se modifican. En personalizado, solamente
+  # cambian los tres numeradores observados que originan las tasas históricas.
+  # Así calcular_tasas() y preparar_flujos() conservan sus fórmulas originales.
+  datos_observados_actuales <- reactive({
+    if (is.null(input$modo_tasas) || input$modo_tasas == "base") {
+      return(datos_observados)
+    }
+    porcentajes <- c(input$tasa_retiros_param,
+                     input$tasa_renovacion_param,
+                     input$tasa_cobro_param)
+    shiny::req(length(porcentajes) == 3, all(is.finite(porcentajes)),
+               all(porcentajes >= 0), all(porcentajes <= 100))
+    datos_observados |>
+      dplyr::mutate(
+        retiros_vista_30d = saldo_vista_inicio_30d * porcentajes[1] / 100,
+        principal_renovado_30d = vencimientos_plazo_30d * porcentajes[2] / 100,
+        cobros_recibidos_30d = cobros_programados_30d * porcentajes[3] / 100
+      )
+  })
+  
+  resultados_actuales <- reactive({
+    if (is.null(input$modo_tasas) || input$modo_tasas == "base") {
+      return(resultados_base)
+    }
+    modelo_parametrizado <- crear_modelo_liquidez(
+      datos_contables, datos_contrato,
+      datos_observados_actuales(), datos_catalogo
+    )
+    recalcular_resultados(modelo_parametrizado)
+  })
+  
+  modelo_actual <- reactive(resultados_actuales()$modelo)
+  
+  # Muestra las tasas históricas correspondientes al filtro de la barra lateral.
+  output$tasas_base_seleccion <- renderText({
+    t <- modelo$tasas |>
+      dplyr::filter(alias == input$entidad,
+                    periodo == as.Date(input$corte),
+                    moneda == input$moneda)
+    if (nrow(t) == 0) return("Sin tasas históricas para este filtro.")
+    f <- function(x) if (is.na(x[1])) "NA" else paste0(round(x[1] * 100, 1), "%")
+    paste0("Históricas del corte — retiros: ", f(t$tasa_retiro),
+           "; renovaciones: ", f(t$tasa_renovacion),
+           "; recuperación: ", f(t$tasa_cobro))
+  })
+  
+  observeEvent(input$restaurar_tasas, {
+    updateSelectInput(session, "modo_tasas", selected = "base")
+  })
+  
   filtros <- reactive({
     list(
       alias = input$entidad,
@@ -695,16 +788,16 @@ server <- function(input, output, session) {
     tabla |>
       dplyr::filter(alias == f$alias, periodo == f$periodo, moneda == f$moneda)
   }
-  saldos_actuales <- reactive(filtrar(modelo$saldos, filtros()))
-  estructura_actual <- reactive(filtrar(modelo$estructura, filtros()))
-  bandas_actuales <- reactive(filtrar(modelo$bandas, filtros()))
-  rubros_actuales <- reactive(filtrar(modelo$rubros, filtros()))
-  vencimientos_actuales <- reactive(filtrar(modelo$vencimientos, filtros()))
-  maestra_actual <- reactive(filtrar(modelo$tabla_maestra, filtros()))
-  tasas_actuales <- reactive(filtrar(modelo$tasas, filtros()))
-  flujos_actuales <- reactive(filtrar(modelo$flujos, filtros()))
+  saldos_actuales <- reactive(filtrar(modelo_actual()$saldos, filtros()))
+  estructura_actual <- reactive(filtrar(modelo_actual()$estructura, filtros()))
+  bandas_actuales <- reactive(filtrar(modelo_actual()$bandas, filtros()))
+  rubros_actuales <- reactive(filtrar(modelo_actual()$rubros, filtros()))
+  vencimientos_actuales <- reactive(filtrar(modelo_actual()$vencimientos, filtros()))
+  maestra_actual <- reactive(filtrar(modelo_actual()$tabla_maestra, filtros()))
+  tasas_actuales <- reactive(filtrar(modelo_actual()$tasas, filtros()))
+  flujos_actuales <- reactive(filtrar(modelo_actual()$flujos, filtros()))
   bandas_cobertura_actuales <- reactive({
-    filtrar(modelo$cobertura_contrato, filtros())
+    filtrar(modelo_actual()$cobertura_contrato, filtros())
   })
   tasa_encaje_actual <- reactive({
     input$tasa_encaje_input
@@ -714,7 +807,7 @@ server <- function(input, output, session) {
     
     # Se recalcula usando la tasa seleccionada
     datos <- encaje_reserv(
-      saldos = modelo$saldos,
+      saldos = modelo_actual()$saldos,
       tasa_encaje = tasa_encaje_actual()
     )
     
@@ -862,13 +955,13 @@ server <- function(input, output, session) {
   })
   output$tabla_comparativo <- DT::renderDT({
     f <- filtros()
-    compare <- modelo$bandas |>
+    compare <- modelo_actual()$bandas |>
       dplyr::filter(periodo == f$periodo,
                     moneda == f$moneda,
                     as.character(banda) == "16-30") |>
       dplyr::select(alias, acumulada_contrato, acumulada_ajustada) |>
       dplyr::left_join(
-        modelo$saldos |>
+        modelo_actual()$saldos |>
           dplyr::filter(
             periodo == f$periodo,
             moneda == f$moneda,
@@ -1021,7 +1114,7 @@ server <- function(input, output, session) {
   })
   output$tabla_catalogo <- DT::renderDT({
     tabla_interactiva(
-      modelo$catalogo |>
+      modelo_actual()$catalogo |>
         dplyr::select(
           cuenta_contable,
           denominacion_oficial,
@@ -1032,7 +1125,7 @@ server <- function(input, output, session) {
       10
     )
   })
-  output$tabla_controles <- DT::renderDT(tabla_interactiva(modelo$verificaciones, 5))
+  output$tabla_controles <- DT::renderDT(tabla_interactiva(modelo_actual()$verificaciones, 5))
   
   # Tabla de cobertura de faltantes con filtros
   output$tabla_cobertura <- DT::renderDT({
@@ -1090,17 +1183,17 @@ server <- function(input, output, session) {
     data.frame(categoria = c("ICL", "IFNE"),
                metrica = c(
                  icl(
-                   datos = modelo$saldos,
+                   datos = modelo_actual()$saldos,
                    entidad = input$entidad,
                    fecha = as.Date(input$corte),
                    moneda_var = input$moneda,
-                   datos_observados = datos_observados
+                   datos_observados = datos_observados_actuales()
                  ),
                  ifne(
-                   datos = modelo$saldos,
+                   datos = modelo_actual()$saldos,
                    entidad = input$entidad,
                    fecha = as.Date(input$corte),
-                   datos_observados = datos_observados
+                   datos_observados = datos_observados_actuales()
                  )
                ))
   })
@@ -1125,7 +1218,7 @@ server <- function(input, output, session) {
   
   # Datos del LVaR por entidad
   var_entidad <- reactive({
-    var_liquidez(act_liquidados_ajustado, factor_liq = input$factor, datos_contables = datos_contables)
+    var_liquidez(resultados_actuales()$act_liquidados_ajustado, factor_liq = input$factor, datos_contables = datos_contables)
   })
   
   # Datos del VaR y LVaR
@@ -1200,9 +1293,9 @@ server <- function(input, output, session) {
       input$tipo_flujo,
       "Ajustado por comportamiento"
     )) {
-      datos <- modelo$cobertura_ajustado
+      datos <- modelo_actual()$cobertura_ajustado
     } else {
-      datos <- modelo$cobertura_contrato
+      datos <- modelo_actual()$cobertura_contrato
     }
     
     # Filtrar por entidad
@@ -1241,7 +1334,7 @@ server <- function(input, output, session) {
   # Filtrar datos de bandas_tc
   bandas_tc_actual <- reactive({
     
-    datos <- bandas_tc
+    datos <- resultados_actuales()$bandas_tc
     
     # Filtrar por entidad
     if (
@@ -1297,192 +1390,192 @@ server <- function(input, output, session) {
       ),
       ifne_a = c(
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "A",
           fecha = ymd("2026-04-30"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "A",
           fecha = ymd("2026-05-31"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "A",
           fecha = ymd("2026-06-30"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "A",
           fecha = ymd("2026-07-31"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "A",
           fecha = ymd("2026-08-31"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "A",
           fecha = ymd("2026-09-30"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         )
       ),
       ifne_b = c(
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "B",
           fecha = ymd("2026-04-30"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "B",
           fecha = ymd("2026-05-31"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "B",
           fecha = ymd("2026-06-30"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "B",
           fecha = ymd("2026-07-31"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "B",
           fecha = ymd("2026-08-31"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "B",
           fecha = ymd("2026-09-30"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         )
       ),
       ifne_c = c(
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "C",
           fecha = ymd("2026-04-30"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "C",
           fecha = ymd("2026-05-31"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "C",
           fecha = ymd("2026-06-30"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "C",
           fecha = ymd("2026-07-31"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "C",
           fecha = ymd("2026-08-31"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "C",
           fecha = ymd("2026-09-30"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         )
       ),
       ifne_d = c(
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "D",
           fecha = ymd("2026-04-30"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "D",
           fecha = ymd("2026-05-31"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "D",
           fecha = ymd("2026-06-30"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "D",
           fecha = ymd("2026-07-31"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "D",
           fecha = ymd("2026-08-31"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "D",
           fecha = ymd("2026-09-30"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         )
       ),
       ifne_e = c(
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "E",
           fecha = ymd("2026-04-30"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "E",
           fecha = ymd("2026-05-31"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "E",
           fecha = ymd("2026-06-30"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "E",
           fecha = ymd("2026-07-31"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "E",
           fecha = ymd("2026-08-31"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         ),
         ifne(
-          modelo[[2]],
+          modelo_actual()[[2]],
           entidad = "E",
           fecha = ymd("2026-09-30"),
-          datos_observados = datos_observados
+          datos_observados = datos_observados_actuales()
         )
       )
     )
