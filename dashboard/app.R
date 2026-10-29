@@ -306,6 +306,15 @@ ui <- fluidPage(
       downloadButton("descargar_maestra", "Descargar tabla maestra (CSV)"),
       br(),
       br(),
+      downloadButton("descargar_cobertura", "Descargar cobertura (CSV)"),
+      br(),
+      br(),
+      downloadButton("descargar_encaje", "Descargar encaje de reservas (CSV)"),
+      br(),
+      br(),
+      downloadButton("descargar_bandas", "Descargar bandas (CSV)"),
+      br(),
+      br(),
       downloadButton("descargar_liquidar", "Descargar liquidez (CSV)")
     ),
     
@@ -1707,6 +1716,78 @@ server <- function(input, output, session) {
     content = function(file) {
       # Contenido del archivo a descargar
       datos <- filtrar_como_dt(estructura_actual(), input$tabla_estructura_rows_all)
+      
+      # Se crea el csv correspondiente
+      exportar_csv(datos, file)
+    }
+  )
+  
+  # Descarga la tabla de cobertura de faltantes
+  output$descargar_cobertura <- downloadHandler(
+    # Nombre del archivo
+    filename = function()
+      paste0(
+        "cobertura_faltantes_",
+        input$entidad,
+        "_",
+        input$corte,
+        "_",
+        input$moneda,
+        ".csv"
+      ),
+    
+    # Contenido del archivo a descargar
+    content = function(file) {
+      # Contenido del archivo a descargar
+      datos <- filtrar_como_dt(bandas_cobertura_actuales(), input$tabla_cobertura_rows_all)
+      
+      # Se crea el csv correspondiente
+      exportar_csv(datos, file)
+    }
+  )
+  
+  # Descarga la tabla de encaje de reservas
+  output$descargar_encaje <- downloadHandler(
+    # Nombre del archivo
+    filename = function()
+      paste0(
+        "encaje_reservas_",
+        input$entidad,
+        "_",
+        input$corte,
+        "_",
+        input$moneda,
+        ".csv"
+      ),
+    
+    # Contenido del archivo a descargar
+    content = function(file) {
+      # Contenido del archivo a descargar
+      datos <- filtrar_como_dt(encaje_reservs_actual(), input$tabla_encaje_reservs_rows_all)
+      
+      # Se crea el csv correspondiente
+      exportar_csv(datos, file)
+    }
+  )
+  
+  # Descarga la tabla de bandas
+  output$descargar_bandas <- downloadHandler(
+    # Nombre del archivo
+    filename = function()
+      paste0(
+        "bandas_",
+        input$entidad,
+        "_",
+        input$corte,
+        "_",
+        input$moneda,
+        ".csv"
+      ),
+    
+    # Contenido del archivo a descargar
+    content = function(file) {
+      # Contenido del archivo a descargar
+      datos <- filtrar_como_dt(bandas_tc_actual(), input$tabla_bandas_tc_rows_all)
       
       # Se crea el csv correspondiente
       exportar_csv(datos, file)
