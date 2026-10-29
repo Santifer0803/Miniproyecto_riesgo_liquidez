@@ -26,4 +26,4 @@ Para encontrar el programa cargue el Rproject, abra la carpeta dashboard y, segu
 
 Una vez que se tiene la app abierta, se debe seleccionar **todo** el código manualmente y correrlo con CTRL + ENTER.
 
-La aplicación tiene dependencias con archivos externos, por lo cual, oprimir el botón de *Run App* resultaría en error.
+**ADVERTENCIA**: La aplicación tiene dependencias con archivos externos, por lo cual, oprimir el botón de *Run App* resultaría en múltiples errores, aunque la aplicación corra.
