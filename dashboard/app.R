@@ -1548,7 +1548,7 @@ server <- function(input, output, session) {
       plotly::layout(
         xaxis = list(title = "Fecha"),
         yaxis = list(title = "IFNE"),
-        legend = list(title = list(text = "Medida"))
+        legend = list(title = list(text = "Entidad"))
       )
   })
   
